@@ -1,0 +1,10 @@
+## Interface: 100200
+## Title: MiniMapimous
+## Notes: Minimap enhancement addon with data texts
+## Author: Your Name
+## Version: 1.0
+## SavedVariables: MiniMapimousDB
+
+Config.lua
+MiniMapimous.lua
+DataTexts.lua 

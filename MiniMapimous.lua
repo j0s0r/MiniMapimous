@@ -234,29 +234,146 @@ end
 
 addon.export('ButtonIdentification', ButtonIdentification)
 
--- Function to update bar visibility based on hideButtonBar setting
-function UpdateBarVisibility()
-    local Options = addon.import("Options")
-    if not addon.buttonBar then
-        return
+-- Single consolidated timer system
+local masterTimer = 0
+local UPDATE_INTERVAL = 1 -- Main updates every 1 second
+local BUTTON_BAR_CHECK_INTERVAL = 0.2 -- Button bar checks every 0.2 seconds
+local BORDER_CHECK_INTERVAL = 5 -- Border checks every 5 seconds (reduced frequency)
+
+-- Cache for MouseIsOver results to reduce CPU usage
+local mouseOverCache = {}
+local cacheTimestamp = 0
+local CACHE_DURATION = 0.1 -- Cache results for 100ms
+
+local function GetCachedMouseIsOver(frame)
+    local now = GetTime()
+    if now - cacheTimestamp > CACHE_DURATION then
+        -- Clear cache if it's stale
+        wipe(mouseOverCache)
+        cacheTimestamp = now
     end
+    
+    local frameKey = tostring(frame)
+    if mouseOverCache[frameKey] == nil then
+        mouseOverCache[frameKey] = MouseIsOver(frame)
+    end
+    return mouseOverCache[frameKey]
+end
+
+-- Import Options module
+local Options = addon.import("Options")
+
+-- Button categories and priorities
+local buttonCategories = {
+    ADDON = { priority = 1, color = {0.3, 1, 0.8}, name = "Addons" },
+    BLIZZARD = { priority = 2, color = {0.8, 0.8, 1}, name = "Blizzard" },
+    TOOL = { priority = 3, color = {1, 0.8, 0.3}, name = "Tools" },
+    UNKNOWN = { priority = 4, color = {0.7, 0.7, 0.7}, name = "Other" }
+}
+
+-- High priority buttons that should always be visible
+local highPriorityButtons = {
+    "MiniMapTrackingFrame",
+    "GameTimeFrame", 
+    "MiniMapMailFrame",
+    "QueueStatusMinimapButton",
+    "MiniMapLFGFrame"
+}
+
+-- Function to categorize a button
+local function CategorizeButton(button)
+    if not button then return "UNKNOWN" end
+    
+    local name = button:GetName() or ""
+    local parent = button:GetParent()
+    local parentName = parent and parent:GetName() or ""
+    
+    -- Check for high priority Blizzard buttons
+    for _, priorityName in ipairs(highPriorityButtons) do
+        if name == priorityName then
+            return "BLIZZARD"
+        end
+    end
+    
+    -- Blizzard buttons (usually start with specific prefixes)
+    if name:match("^MiniMap") or name:match("^GameTime") or name:match("^Queue") then
+        return "BLIZZARD"
+    end
+    
+    -- Tool buttons (common tool addons)
+    if name:match("Tool") or name:match("Util") or name:match("Helper") then
+        return "TOOL"
+    end
+    
+    -- Everything else is likely an addon
+    if parent and parent ~= Minimap and parent ~= UIParent then
+        return "ADDON"
+    end
+    
+    return "ADDON" -- Default to addon category
+end
+
+-- Enhanced button tooltip function
+local function ShowEnhancedButtonTooltip(button)
+    if not button then return end
+    
+    local name = button:GetName() or "Unknown Button"
+    local category = CategorizeButton(button)
+    local categoryInfo = buttonCategories[category] or buttonCategories.UNKNOWN
+    
+    GameTooltip:SetOwner(button, "ANCHOR_LEFT")
+    GameTooltip:SetText(name, 1, 1, 1)
+    
+    -- Add category information
+    GameTooltip:AddLine("Category: " .. categoryInfo.name, categoryInfo.color[1], categoryInfo.color[2], categoryInfo.color[3])
+    
+    -- Add button size information
+    local width, height = button:GetSize()
+    GameTooltip:AddLine(string.format("Size: %.0fx%.0f", width, height), 0.8, 0.8, 0.8)
+    
+    -- Add parent information
+    local parent = button:GetParent()
+    if parent then
+        local parentName = parent:GetName() or "Unknown Parent"
+        GameTooltip:AddLine("Parent: " .. parentName, 0.8, 0.8, 0.8)
+    end
+    
+    -- Add frame level
+    GameTooltip:AddLine("Frame Level: " .. button:GetFrameLevel(), 0.8, 0.8, 0.8)
+    
+    -- Check if button has click functionality
+    if button:IsEnabled() and button:GetScript("OnClick") then
+        GameTooltip:AddLine("Left-click: Activate", 0.3, 1, 0.3)
+    end
+    
+    GameTooltip:AddLine("Right-click: Hide button", 1, 0.8, 0.3)
+    GameTooltip:Show()
+end
+
+-- Optimized bar visibility function with caching
+function UpdateBarVisibility()
+    if not addon.buttonBar then return end
     
     local hideButtonBar = Options:get("hideButtonBar")
     
-    -- If hideButtonBar is enabled, handle mouseover functionality
     if hideButtonBar then
         local shouldShow = false
         
-        -- Check if mouse is over minimap or button bar
-        if MouseIsOver(Minimap) or MouseIsOver(addon.buttonBar) then
+        -- Use cached MouseIsOver results
+        if GetCachedMouseIsOver(Minimap) or GetCachedMouseIsOver(addon.buttonBar) then
             shouldShow = true
         end
         
-        -- Also check if mouse is over any of the buttons in the bar
-        for _, button in ipairs(addon.collectedAddonButtons or {}) do
-            if button and MouseIsOver(button) then
-                shouldShow = true
-                break
+        -- Cache button list to avoid repeated access
+        if not shouldShow then
+            local buttons = addon.collectedAddonButtons
+            if buttons then
+                for _, button in ipairs(buttons) do
+                    if button and GetCachedMouseIsOver(button) then
+                        shouldShow = true
+                        break
+                    end
+                end
             end
         end
         
@@ -267,19 +384,19 @@ function UpdateBarVisibility()
             addon.buttonBar:Hide()
         end
     else
-        -- Always show the bar when hideButtonBar is disabled
         addon.buttonBar:Show()
         addon.buttonBar:SetAlpha(1)
-        -- Show all buttons
-        for _, button in ipairs(addon.collectedAddonButtons or {}) do
-            if button then button:Show() end
+        local buttons = addon.collectedAddonButtons
+        if buttons then
+            for _, button in ipairs(buttons) do
+                if button then button:Show() end
+            end
         end
     end
 end
 
 -- Function to position buttons in a bar
 local function PositionButtons(buttonList, bar)
-    local Options = addon.import("Options")
     if not buttonList or not bar then return 0 end
     
     local padding = 5
@@ -331,6 +448,34 @@ local function PositionButtons(buttonList, bar)
         
         -- Ensure visibility
         button:Show()
+        
+        -- Apply enhanced tooltips and category indicators
+        button:SetScript("OnEnter", function(self)
+            ShowEnhancedButtonTooltip(self)
+        end)
+        
+        button:SetScript("OnLeave", function(self)
+            GameTooltip:Hide()
+        end)
+        
+        -- Add category visual indicator (colored border)
+        local category = CategorizeButton(button)
+        local categoryInfo = buttonCategories[category] or buttonCategories.UNKNOWN
+        
+        -- Create category indicator backdrop if it doesn't exist
+        if not button.categoryBorder then
+            button.categoryBorder = CreateFrame("Frame", nil, button, BackdropTemplateMixin and "BackdropTemplate")
+            button.categoryBorder:SetAllPoints(button)
+            button.categoryBorder:SetFrameLevel(button:GetFrameLevel() - 1)
+            button.categoryBorder:SetBackdrop({
+                edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                edgeSize = 2,
+                insets = {left = 1, right = 1, top = 1, bottom = 1}
+            })
+        end
+        
+        -- Set category color
+        button.categoryBorder:SetBackdropBorderColor(categoryInfo.color[1], categoryInfo.color[2], categoryInfo.color[3], 0.8)
     end
     
     -- Update bar visibility state after positioning
@@ -341,8 +486,6 @@ end
 
 -- Function to create a button bar
 local function CreateButtonBar()
-    local Options = addon.import("Options")
-    
     if addon.buttonBar then
         return addon.buttonBar
     end
@@ -357,10 +500,10 @@ local function CreateButtonBar()
         edgeSize = 16,
         insets = {left = 4, right = 4, top = 4, bottom = 4}
     })
-    bar:SetBackdropColor(0, 0, 0, 0.6)
-    bar:SetBackdropBorderColor(0.6, 0.6, 0.6, 0.8)
+    bar:SetBackdropColor(0, 0, 0, 0.6) -- Restored opacity since it's beside minimap
+    bar:SetBackdropBorderColor(0.6, 0.6, 0.6, 0.8) -- Restored border opacity
     bar:SetFrameStrata("MEDIUM")
-    bar:SetFrameLevel(10)
+    bar:SetFrameLevel(Minimap:GetFrameLevel() + 3) -- Above minimap and above border (which is +1)
     
     -- Add mouse event handlers for hideButtonBar functionality
     bar:EnableMouse(true)
@@ -379,11 +522,11 @@ local function CreateButtonBar()
         end
     end)
     
-    -- Position the bar (always anchored to minimap)
+    -- Position the bar (beside minimap border area)
     if Options:get("barPosition") == "LEFT" then
-        bar:SetPoint("TOPRIGHT", Minimap, "TOPLEFT", -5, 0)
+        bar:SetPoint("TOPRIGHT", Minimap, "TOPLEFT", -9, 0) -- Outside left edge, accounting for border
     else
-        bar:SetPoint("TOPLEFT", Minimap, "TOPRIGHT", 5, 0)
+        bar:SetPoint("TOPLEFT", Minimap, "TOPRIGHT", 9, 0) -- Outside right edge, accounting for border
     end
     
     addon.buttonBar = bar
@@ -392,15 +535,14 @@ end
 
 -- Function to update bar position when minimap scale changes
 function addon.UpdateBarPosition()
-    local Options = addon.import("Options")
     if addon.buttonBar then
         addon.buttonBar:ClearAllPoints()
         
         -- Always anchor to minimap (detach functionality removed)
         if Options:get("barPosition") == "LEFT" then
-            addon.buttonBar:SetPoint("TOPRIGHT", Minimap, "TOPLEFT", -5, 0)
+            addon.buttonBar:SetPoint("TOPRIGHT", Minimap, "TOPLEFT", -9, 0)
         else
-            addon.buttonBar:SetPoint("TOPLEFT", Minimap, "TOPRIGHT", 5, 0)
+            addon.buttonBar:SetPoint("TOPLEFT", Minimap, "TOPRIGHT", 9, 0)
         end
         
         -- Ensure the bar is visible after positioning
@@ -508,7 +650,6 @@ end
 
 -- Function to set up square minimap
 function SetupSquareMinimap()
-    local Options = addon.import("Options")
     if not Minimap then return end
     
     -- Make minimap square
@@ -590,11 +731,8 @@ function SetupSquareMinimap()
             end
             
             -- Method 5: Fallback to game menu
-            print("MiniMapimous: Could not open tracking menu, opening game menu instead")
-            if GameMenuFrame and GameMenuFrame:IsVisible() then
-                HideUIPanel(GameMenuFrame)
             else
-                ShowUIPanel(GameMenuFrame)
+                -- Could not open tracking menu - fail silently
             end
         end
     end)
@@ -668,7 +806,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
             CreateMinimapBorder()
         end)
         
-        -- Debug: Check if DataTexts module is available
+        -- Initialize DataTexts module
         local DataTexts = addon.import("DataTexts")
         
         -- Initialize DataTexts properly
@@ -715,17 +853,47 @@ frame:SetScript("OnEvent", function(self, event, ...)
     end
 end)
 
--- Periodic update to ensure square shape and visibility
-C_Timer.NewTicker(1, function()
-    local Options = addon.import("Options")
-    if Minimap then
-        Minimap:SetMaskTexture('Interface\\BUTTONS\\WHITE8X8')
-        Minimap:Show()
-        if MinimapCluster then
-            MinimapCluster:Show()
+-- MASTER TIMER - Replaces all separate timers for better performance
+local masterUpdateFrame = CreateFrame("Frame")
+masterUpdateFrame:SetScript("OnUpdate", function(self, elapsed)
+    masterTimer = masterTimer + elapsed
+    
+    -- Main maintenance updates every 1 second
+    if masterTimer >= UPDATE_INTERVAL then
+        local Options = addon.import("Options")
+        
+        if Minimap then
+            Minimap:SetMaskTexture('Interface\\BUTTONS\\WHITE8X8')
+            Minimap:Show()
+            if MinimapCluster then
+                MinimapCluster:Show()
+            end
+            
+            -- Data text updates (consolidated from DataTexts.lua)
+            local DataTexts = addon.import("DataTexts")
+            if DataTexts then
+                DataTexts:UpdateAllDataTexts()
+            end
+            
+            -- Button collection check (less frequent)
+            if Options:get("hideButtons") and addon.buttonBar and #(addon.collectedAddonButtons or {}) == 0 then
+                CollectMinimapButtons()
+            end
         end
         
-        -- Ensure border is visible and properly positioned
+        masterTimer = 0
+    end
+    
+    -- Button bar visibility check (more frequent for responsiveness)
+    if (masterTimer % BUTTON_BAR_CHECK_INTERVAL) < elapsed then
+        local Options = addon.import("Options")
+        if Options:get("hideButtonBar") and addon.buttonBar then
+            UpdateBarVisibility()
+        end
+    end
+    
+    -- Border check (less frequent - every 5 seconds)
+    if (masterTimer % BORDER_CHECK_INTERVAL) < elapsed then
         if not addon.minimapBorder or not addon.minimapBorder:IsShown() then
             CreateMinimapBorder()
         elseif addon.minimapBorder then
@@ -734,139 +902,20 @@ C_Timer.NewTicker(1, function()
             addon.minimapBorder:SetAlpha(1)
             addon.minimapBorder:SetBackdropBorderColor(0, 0, 0, 1)
         end
-        
-        -- Ensure minimap data bar scales with minimap
-        local DataTexts = addon.import("DataTexts")
-        if DataTexts and DataTexts.UpdateMinimapDataBarScale then
-            DataTexts:UpdateMinimapDataBarScale()
-        end
-        
-        -- Use centralized UI element visibility function
-        UpdateUIElementVisibility()
-        
-        -- Handle hideButtonBar functionality with more frequent updates
-        if Options:get("hideButtonBar") then
-            UpdateBarVisibility()
-        end
-        
-        -- Recheck buttons periodically
-        if Options:get("hideButtons") and addon.buttonBar and #(addon.collectedAddonButtons or {}) == 0 then
-            CollectMinimapButtons()
-        end
     end
 end)
 
--- More frequent update for hideButtonBar responsiveness
-C_Timer.NewTicker(0.1, function()
-    local Options = addon.import("Options")
-    if Options:get("hideButtonBar") and addon.buttonBar then
-        UpdateBarVisibility()
-    end
-end)
-
--- Slash command handler
-SLASH_MINIMAPIMOUS1 = "/minimapimous"
-SLASH_MINIMAPIMOUS2 = "/mmap"
-SLASH_MINIMAPIMOUS3 = "/mmmail"
-SlashCmdList["MINIMAPIMOUS"] = function(msg)
-    if msg == "mail" or msg == "debugmail" then
-        DebugMailIcon()
-        -- Also try to re-collect buttons
-        if Options and Options:get("hideButtons") then
-            CollectMinimapButtons()
-        end
-    else
-        if Settings and Settings.OpenToCategory then
-            Settings.OpenToCategory("MiniMapimous")
-        else
-            InterfaceOptionsFrame_OpenToCategory(addon.configPanel)
-            InterfaceOptionsFrame_OpenToCategory(addon.configPanel)
-        end
-    end
+-- Function to update UI element visibility (removed - functionality simplified)
+function UpdateUIElementVisibility()
+    -- This function is no longer needed since we removed the hide UI elements options
+    -- All UI elements will remain visible by default
 end
 
--- Add debounce timer variable near the top with other variables
+-- Add debounce timer variable 
 local collectionTimer = nil
 
 -- Prevent multiple rapid collections
 local isCollecting = false
-
--- Function to check and potentially show mail icon for debugging
-local function DebugMailIcon()
-    -- Check mail status
-    local hasNewMail = HasNewMail()
-    
-    -- Try to get mail count
-    local numUnreadMail = 0
-    if C_Mail and C_Mail.GetNumUnreadMail then
-        numUnreadMail = C_Mail.GetNumUnreadMail() or 0
-    end
-    
-    -- Check if mailbox is open (alternative to CanSendMail which doesn't exist)
-    local mailboxOpen = MailFrame and MailFrame:IsVisible()
-    
-    -- Look for the actual mail icon that should exist according to WoW wiki
-    -- The mail icon should be a "smaller circular indicator under the date indicator"
-    local modernMailFrames = {
-        -- Modern mail icon possibilities
-        _G["MinimapMailIcon"],
-        _G["MinimapMail"],
-        _G["MiniMapMailFrame"],
-        _G["MinimapClusterMail"],
-        _G["MinimapClusterMailButton"],
-        _G["MinimapClusterMailIcon"],
-        -- Check for any frame with "Mail" in the name that's a child of Minimap or MinimapCluster
-    }
-    
-    -- Also check children of MinimapCluster for mail-related frames
-    if MinimapCluster then
-        for i, child in ipairs({MinimapCluster:GetChildren()}) do
-            local name = child:GetName()
-            if name and name:find("Mail") then
-                table.insert(modernMailFrames, child)
-            end
-        end
-    end
-    
-    -- Check children of Minimap for mail-related frames
-    if Minimap then
-        for i, child in ipairs({Minimap:GetChildren()}) do
-            local name = child:GetName()
-            if name and name:find("Mail") then
-                table.insert(modernMailFrames, child)
-            end
-        end
-    end
-    
-    -- Try to find mail icon by searching all global frames
-    for name, frame in pairs(_G) do
-        if type(name) == "string" and type(frame) == "table" and frame.GetObjectType then
-            if name:find("Mail") and (name:find("Minimap") or name:find("Icon")) then
-                if not tContains(modernMailFrames, frame) then
-                    table.insert(modernMailFrames, frame)
-                end
-            end
-        end
-    end
-    
-    for i, frame in ipairs(modernMailFrames) do
-        if frame then
-            local frameName = frame:GetName() or ("unnamed_" .. i)
-            frame:Show()
-            frame:SetAlpha(1)
-            if frame.SetShown then
-                frame:SetShown(true)
-            end
-        end
-    end
-    
-    -- Also check if any mail frames are actually visible after our attempts
-    for i, frame in ipairs(modernMailFrames) do
-        if frame then
-            local frameName = frame:GetName() or ("unnamed_" .. i)
-        end
-    end
-end
 
 -- Update the main collection function
 function CollectMinimapButtons()
@@ -898,20 +947,6 @@ function CollectMinimapButtons()
 
         -- Clear previous collection
         ButtonCollection:clear()
-        
-        -- Check for mail buttons specifically
-        local mailButtons = {
-            "MiniMapMailFrame",
-            "MinimapMailIcon", 
-            "MinimapClusterMail",
-            "MinimapClusterMailButton",
-            "MailFrame",
-            "MinimapMail"
-        }
-        
-        for _, buttonName in ipairs(mailButtons) do
-            local button = _G[buttonName]
-        end
 
         -- First collect whitelisted buttons
         for buttonName in pairs(Options:get("whitelist")) do
@@ -987,10 +1022,4 @@ function CollectMinimapButtons()
         
         isCollecting = false
     end)
-end
-
--- Function to update UI element visibility (removed - functionality simplified)
-function UpdateUIElementVisibility()
-    -- This function is no longer needed since we removed the hide UI elements options
-    -- All UI elements will remain visible by default
 end 

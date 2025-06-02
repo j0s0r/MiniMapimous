@@ -20,69 +20,168 @@ local otherDataBar = nil
 local secondDataTexts = {} -- New second data bar storage
 local secondDataBar = nil -- New second data bar
 
+-- Cache addon data to reduce expensive scans
+local addonDataCache = {}
+local addonCacheTimestamp = 0
+local ADDON_CACHE_DURATION = 3 -- Cache addon data for 3 seconds
+
+-- SESSION STATISTICS TRACKING
+local sessionStats = {
+    startTime = 0,
+    startXP = 0,
+    startGold = 0,
+    startLevel = 0,
+    fpsHistory = {},
+    latencyHistory = {},
+    maxHistorySize = 300, -- Keep 5 minutes of data at 1-second intervals
+}
+
+-- Initialize session tracking
+local function InitializeSessionStats()
+    sessionStats.startTime = GetTime()
+    sessionStats.startXP = UnitXP("player")
+    sessionStats.startGold = GetMoney()
+    sessionStats.startLevel = UnitLevel("player")
+    sessionStats.fpsHistory = {}
+    sessionStats.latencyHistory = {}
+end
+
+-- Update session statistics
+local function UpdateSessionStats()
+    local now = GetTime()
+    local fps = GetFramerate()
+    local _, _, lagHome, lagWorld = GetNetStats()
+    local maxLatency = math.max(lagHome or 0, lagWorld or 0)
+    
+    -- Add to history
+    table.insert(sessionStats.fpsHistory, {time = now, value = fps})
+    table.insert(sessionStats.latencyHistory, {time = now, value = maxLatency})
+    
+    -- Trim history to max size
+    while #sessionStats.fpsHistory > sessionStats.maxHistorySize do
+        table.remove(sessionStats.fpsHistory, 1)
+    end
+    while #sessionStats.latencyHistory > sessionStats.maxHistorySize do
+        table.remove(sessionStats.latencyHistory, 1)
+    end
+end
+
+-- Get session statistics
+local function GetSessionStats()
+    local currentTime = GetTime()
+    local sessionDuration = currentTime - sessionStats.startTime
+    local currentXP = UnitXP("player")
+    local currentGold = GetMoney()
+    local currentLevel = UnitLevel("player")
+    
+    -- Calculate gains
+    local xpGained = 0
+    local goldGained = currentGold - sessionStats.startGold
+    local levelsGained = currentLevel - sessionStats.startLevel
+    
+    -- Handle level changes for XP calculation
+    if levelsGained > 0 then
+        -- Player leveled up, XP calculation is more complex
+        xpGained = currentXP + (levelsGained * 1000000) -- Rough estimate
+    else
+        xpGained = currentXP - sessionStats.startXP
+    end
+    
+    -- Calculate rates (per hour)
+    local hoursPlayed = sessionDuration / 3600
+    local xpPerHour = hoursPlayed > 0 and (xpGained / hoursPlayed) or 0
+    local goldPerHour = hoursPlayed > 0 and (goldGained / hoursPlayed) or 0
+    
+    -- Calculate performance averages
+    local avgFPS = 0
+    local minFPS = 999
+    local maxFPS = 0
+    if #sessionStats.fpsHistory > 0 then
+        local total = 0
+        for _, entry in ipairs(sessionStats.fpsHistory) do
+            total = total + entry.value
+            minFPS = math.min(minFPS, entry.value)
+            maxFPS = math.max(maxFPS, entry.value)
+        end
+        avgFPS = total / #sessionStats.fpsHistory
+    end
+    
+    local avgLatency = 0
+    local minLatency = 999
+    local maxLatency = 0
+    if #sessionStats.latencyHistory > 0 then
+        local total = 0
+        for _, entry in ipairs(sessionStats.latencyHistory) do
+            total = total + entry.value
+            minLatency = math.min(minLatency, entry.value)
+            maxLatency = math.max(maxLatency, entry.value)
+        end
+        avgLatency = total / #sessionStats.latencyHistory
+    end
+    
+    return {
+        duration = sessionDuration,
+        xpGained = xpGained,
+        goldGained = goldGained,
+        levelsGained = levelsGained,
+        xpPerHour = xpPerHour,
+        goldPerHour = goldPerHour,
+        avgFPS = avgFPS,
+        minFPS = minFPS == 999 and 0 or minFPS,
+        maxFPS = maxFPS,
+        avgLatency = avgLatency,
+        minLatency = minLatency == 999 and 0 or minLatency,
+        maxLatency = maxLatency
+    }
+end
+
+local function GetCachedAddonData()
+    local now = GetTime()
+    if now - addonCacheTimestamp > ADDON_CACHE_DURATION then
+        -- Refresh cache
+        addonDataCache = {}
+        addonCacheTimestamp = now
+        
+        -- Enable CPU profiling if not already enabled
+        if GetCVar("scriptProfile") ~= "1" then
+            SetCVar("scriptProfile", "1")
+        end
+        
+        -- Update addon memory usage data
+        UpdateAddOnMemoryUsage()
+        UpdateAddOnCPUUsage()
+        
+        -- Calculate total memory and CPU usage across all addons
+        local totalMemory = 0
+        local totalCPU = 0
+        local addonCount = C_AddOns.GetNumAddOns()
+        
+        for i = 1, addonCount do
+            if C_AddOns.IsAddOnLoaded(i) then
+                local memory = GetAddOnMemoryUsage(i)
+                local cpu = GetAddOnCPUUsage(i)
+                totalMemory = totalMemory + memory
+                totalCPU = totalCPU + cpu
+            end
+        end
+        
+        addonDataCache.totalMemory = totalMemory
+        addonDataCache.totalCPU = totalCPU
+    end
+    
+    return addonDataCache
+end
+
 -- Available data texts configuration
 local availableDataTexts = {
-    fps = {
-        name = "FPS",
-        color = {1, 1, 1}, -- White (default, will be overridden by color coding)
-        update = function(frame)
-            local fps = GetFramerate()
-            frame.text:SetText(string.format("%.0f:FPS", fps))
-            
-            -- Color coding based on FPS value
-            if fps >= 60 then
-                frame.text:SetTextColor(0.3, 1, 0.3) -- Green for good FPS
-            elseif fps >= 30 then
-                frame.text:SetTextColor(1, 1, 0.3) -- Yellow for medium FPS
-            else
-                frame.text:SetTextColor(1, 0.3, 0.3) -- Red for low FPS
-            end
-        end,
-        tooltip = function()
-            GameTooltip:SetText("Frames Per Second")
-            local fps = GetFramerate()
-            GameTooltip:AddLine(string.format("Current: %.1f", fps), 1, 1, 1)
-            
-            -- Add performance assessment
-            if fps >= 60 then
-                GameTooltip:AddLine("Excellent performance", 0.3, 1, 0.3)
-            elseif fps >= 30 then
-                GameTooltip:AddLine("Good performance", 1, 1, 0.3)
-            elseif fps >= 20 then
-                GameTooltip:AddLine("Poor performance", 1, 0.8, 0.3)
-            else
-                GameTooltip:AddLine("Very poor performance", 1, 0.3, 0.3)
-            end
-            
-            GameTooltip:AddLine("Higher is better for smooth gameplay", 0.8, 0.8, 0.8)
-        end
-    },
     memory = {
         name = "Memory",
-        color = {0.5, 1, 0.5}, -- Light green
+        color = {0.7, 1, 0.7}, -- Light green
         update = function(frame)
-            -- Enable CPU profiling if not already enabled
-            if GetCVar("scriptProfile") ~= "1" then
-                SetCVar("scriptProfile", "1")
-            end
-            
-            -- Update addon memory usage data
-            UpdateAddOnMemoryUsage()
-            UpdateAddOnCPUUsage()
-            
-            -- Calculate total memory and CPU usage across all addons
-            local totalMemory = 0
-            local totalCPU = 0
-            local addonCount = C_AddOns.GetNumAddOns()
-            
-            for i = 1, addonCount do
-                if C_AddOns.IsAddOnLoaded(i) then
-                    local memory = GetAddOnMemoryUsage(i)
-                    local cpu = GetAddOnCPUUsage(i)
-                    totalMemory = totalMemory + memory
-                    totalCPU = totalCPU + cpu
-                end
-            end
+            -- Use cached addon data for much better performance
+            local addonData = GetCachedAddonData()
+            local totalMemory = addonData.totalMemory or 0
+            local totalCPU = addonData.totalCPU or 0
             
             -- Display both memory and CPU usage
             local memStr = ""
@@ -109,7 +208,7 @@ local availableDataTexts = {
             elseif totalMemory > 20 * 1024 then -- > 20MB
                 frame.text:SetTextColor(1, 1, 0.3) -- Yellow
             else
-                frame.text:SetTextColor(0.5, 1, 0.5) -- Green
+                frame.text:SetTextColor(0.3, 1, 0.3) -- Green
             end
         end,
         tooltip = function()
@@ -252,7 +351,7 @@ local availableDataTexts = {
                 if C_Calendar and C_Calendar.OpenCalendar then
                     C_Calendar.OpenCalendar()
                 else
-                    print("MiniMapimous: Could not open calendar")
+                    -- Could not open calendar - fail silently
                 end
             end
         end
@@ -405,52 +504,157 @@ local availableDataTexts = {
                 else
                     frame.text:SetText(string.format("Guild: %d/%d", numOnline, numTotal))
                 end
+                
+                -- Color based on guild activity
+                local activityPercent = numTotal > 0 and (numOnline / numTotal) or 0
+                if activityPercent >= 0.5 then
+                    frame.text:SetTextColor(0.25, 1, 0.25) -- Bright green for active guild
+                elseif activityPercent >= 0.2 then
+                    frame.text:SetTextColor(1, 1, 0.3) -- Yellow for moderate activity
+                else
+                    frame.text:SetTextColor(0.8, 0.8, 0.8) -- Gray for low activity
+                end
             else
                 frame.text:SetText("No Guild")
+                frame.text:SetTextColor(0.7, 0.7, 0.7)
             end
         end,
         tooltip = function()
             GameTooltip:SetText("Guild Information")
+            -- Make tooltip wider for better readability
+            GameTooltip:SetMinimumWidth(300)
+            
             if IsInGuild() then
                 local guildName = GetGuildInfo("player")
                 local numTotal, numOnline = GetNumGuildMembers()
                 GameTooltip:AddLine(guildName, 0.25, 1, 0.25)
                 GameTooltip:AddLine(string.format("Online: %d/%d", numOnline, numTotal), 1, 1, 1)
                 
-                if numOnline > 0 and numOnline <= 15 then -- Increased from 10 to 15
+                -- Show guild activity level
+                local activityPercent = numTotal > 0 and (numOnline / numTotal) or 0
+                if activityPercent >= 0.5 then
+                    GameTooltip:AddLine("High Activity", 0.25, 1, 0.25)
+                elseif activityPercent >= 0.2 then
+                    GameTooltip:AddLine("Moderate Activity", 1, 1, 0.3)
+                else
+                    GameTooltip:AddLine("Low Activity", 0.8, 0.8, 0.8)
+                end
+                
+                if numOnline > 0 and numOnline <= 20 then -- Increased from 15 to 20
                     GameTooltip:AddLine(" ")
-                    GameTooltip:AddLine("Online Members:", 1, 1, 0)
+                    GameTooltip:AddLine("Online Members by Zone:", 1, 1, 0)
                     
-                    -- Get player's faction for comparison
+                    -- Get player's faction for guild member faction color coding
                     local playerFaction = UnitFactionGroup("player")
+                    local playerZone = GetZoneText() or GetSubZoneText() or "Unknown"
+                    
+                    -- Set faction colors
+                    local factionColor = {r=1, g=1, b=1} -- Default white
+                    if playerFaction == "Alliance" then
+                        factionColor = {r=0.3, g=0.6, b=1} -- Blue for Alliance
+                    elseif playerFaction == "Horde" then
+                        factionColor = {r=1, g=0.3, b=0.3} -- Red for Horde
+                    end
+                    
+                    -- Group members by zone with enhanced color coding
+                    local zoneGroups = {}
+                    local sameZoneCount = 0
                     
                     for i = 1, numTotal do
-                        local name, _, _, level, _, zone, _, _, online = GetGuildRosterInfo(i)
+                        local name, _, _, level, class, zone, _, _, online = GetGuildRosterInfo(i)
                         if online and name then
-                            -- Get class info for class colors
-                            local _, class = UnitClass(name)
-                            local classColor = RAID_CLASS_COLORS[class] or {r=1, g=1, b=1}
-                            
-                            -- Try to determine faction (this is tricky in guild context)
-                            -- We'll use the player's faction as default since guild members are same faction
-                            local factionColor = {r=1, g=1, b=1} -- Default white
-                            if playerFaction == "Alliance" then
-                                factionColor = {r=0.3, g=0.6, b=1} -- Blue for Alliance
-                            elseif playerFaction == "Horde" then
-                                factionColor = {r=1, g=0.3, b=0.3} -- Red for Horde
+                            zone = zone or "Unknown Zone"
+                            if not zoneGroups[zone] then
+                                zoneGroups[zone] = {}
                             end
+                            table.insert(zoneGroups[zone], {name = name, level = level, class = class})
                             
-                            -- Combine class and faction colors (use class color with faction tint)
+                            -- Count members in same zone as player
+                            if zone == playerZone then
+                                sameZoneCount = sameZoneCount + 1
+                            end
+                        end
+                    end
+                    
+                    -- Show same zone members first with enhanced display
+                    if sameZoneCount > 0 then
+                        GameTooltip:AddLine(string.format("In %s (%d):", playerZone, sameZoneCount), 0.3, 1, 0.3)
+                        for _, member in ipairs(zoneGroups[playerZone] or {}) do
+                            -- Get class color and combine with faction color
+                            local _, classFile = UnitClass(member.name)
+                            local classColor = RAID_CLASS_COLORS[classFile or member.class] or {r=1, g=1, b=1}
+                            
+                            -- Blend class color with faction color for enhanced readability
                             local finalR = (classColor.r + factionColor.r) / 2
                             local finalG = (classColor.g + factionColor.g) / 2
                             local finalB = (classColor.b + factionColor.b) / 2
                             
-                            GameTooltip:AddLine(string.format("%s (%d) - %s", name, level, zone or "Unknown"), finalR, finalG, finalB)
+                            GameTooltip:AddLine(string.format("  %s (%d)", member.name, member.level), finalR, finalG, finalB)
+                        end
+                    end
+                    
+                    -- Show other zones with zone color coding
+                    local zonesShown = sameZoneCount > 0 and 1 or 0
+                    for zone, members in pairs(zoneGroups) do
+                        if zone ~= playerZone and zonesShown < 4 then -- Limit to 4 zones total
+                            -- Color-coordinate zone headers
+                            local zoneColor = {0.8, 0.8, 1} -- Light blue for other zones
+                            if zone:find("Stormwind") or zone:find("Ironforge") or zone:find("Darnassus") then
+                                zoneColor = {0.3, 0.6, 1} -- Alliance blue for Alliance cities
+                            elseif zone:find("Orgrimmar") or zone:find("Thunder Bluff") or zone:find("Undercity") then
+                                zoneColor = {1, 0.3, 0.3} -- Horde red for Horde cities
+                            elseif zone:find("Dalaran") or zone:find("Shattrath") or zone:find("Valdrakken") then
+                                zoneColor = {1, 0.8, 0.3} -- Gold for neutral cities
+                            end
+                            
+                            GameTooltip:AddLine(string.format("%s (%d):", zone, #members), zoneColor[1], zoneColor[2], zoneColor[3])
+                            for j, member in ipairs(members) do
+                                if j <= 3 then -- Limit to 3 members per zone
+                                    local _, classFile = UnitClass(member.name)
+                                    local classColor = RAID_CLASS_COLORS[classFile or member.class] or {r=1, g=1, b=1}
+                                    
+                                    -- Apply faction tint to class colors
+                                    local finalR = (classColor.r + factionColor.r) / 2
+                                    local finalG = (classColor.g + factionColor.g) / 2
+                                    local finalB = (classColor.b + factionColor.b) / 2
+                                    
+                                    GameTooltip:AddLine(string.format("  %s (%d)", member.name, member.level), finalR, finalG, finalB)
+                                elseif j == 4 then
+                                    GameTooltip:AddLine(string.format("  ... and %d more", #members - 3), 0.7, 0.7, 0.7)
+                                    break
+                                end
+                            end
+                            zonesShown = zonesShown + 1
+                        end
+                    end
+                    
+                    if zonesShown >= 4 then
+                        local remainingZones = 0
+                        for zone, _ in pairs(zoneGroups) do
+                            if zone ~= playerZone then remainingZones = remainingZones + 1 end
+                        end
+                        if remainingZones > 3 then
+                            GameTooltip:AddLine(string.format("... and %d more zones", remainingZones - 3), 0.7, 0.7, 0.7)
                         end
                     end
                 end
+                
+                GameTooltip:AddLine(" ")
+                GameTooltip:AddLine("Click to open guild panel", 0.8, 0.8, 0.8)
             else
                 GameTooltip:AddLine("Not in a guild", 0.8, 0.8, 0.8)
+            end
+        end,
+        onClick = function()
+            -- Open guild panel
+            if ToggleGuildFrame then
+                ToggleGuildFrame()
+            elseif GuildFrame then
+                if GuildFrame:IsShown() then
+                    GuildFrame:Hide()
+                else
+                    GuildFrame:Show()
+                end
             end
         end
     },
@@ -477,9 +681,23 @@ local availableDataTexts = {
             else
                 frame.text:SetText(string.format("Friends: %d", total))
             end
+            
+            -- Color based on friend activity
+            if total >= 10 then
+                frame.text:SetTextColor(0.3, 1, 0.3) -- Green for many friends online
+            elseif total >= 5 then
+                frame.text:SetTextColor(0.5, 0.8, 1) -- Light blue for some friends
+            elseif total > 0 then
+                frame.text:SetTextColor(1, 1, 0.3) -- Yellow for few friends
+            else
+                frame.text:SetTextColor(0.7, 0.7, 0.7) -- Gray for no friends
+            end
         end,
         tooltip = function()
             GameTooltip:SetText("Friends List")
+            -- Make tooltip wider for better readability
+            GameTooltip:SetMinimumWidth(320)
+            
             local numBNetTotal, numBNetOnline = BNGetNumFriends()
             numBNetOnline = numBNetOnline or 0
             local numWoWOnline = 0
@@ -496,10 +714,13 @@ local availableDataTexts = {
             GameTooltip:AddLine(string.format("WoW: %d online", numWoWOnline), 0.5, 0.8, 1)
             GameTooltip:AddLine(string.format("Total Online: %d", numBNetOnline + numWoWOnline), 1, 1, 1)
             
-            -- Show some Battle.net friends with faction colors if available
-            if numBNetOnline > 0 and numBNetOnline <= 10 then
+            -- Show Battle.net friends with enhanced information
+            if numBNetOnline > 0 and numBNetOnline <= 15 then -- Increased limit
                 GameTooltip:AddLine(" ")
                 GameTooltip:AddLine("Battle.net Friends:", 1, 1, 0)
+                
+                -- Group friends by game
+                local gameGroups = {}
                 
                 for i = 1, numBNetTotal do
                     local accountInfo = C_BattleNet.GetFriendAccountInfo(i)
@@ -508,53 +729,90 @@ local availableDataTexts = {
                         local gameAccountInfo = accountInfo.gameAccountInfo
                         
                         if gameAccountInfo and gameAccountInfo.isOnline then
+                            local gameName = gameAccountInfo.clientProgram or "Unknown"
                             local characterName = gameAccountInfo.characterName
                             local realmName = gameAccountInfo.realmName
                             local factionName = gameAccountInfo.factionName
+                            local zoneName = gameAccountInfo.areaName
                             
-                            -- Color code by faction
-                            local factionColor = {r=1, g=1, b=1} -- Default white
-                            if factionName == "Alliance" then
-                                factionColor = {r=0.3, g=0.6, b=1} -- Blue
-                            elseif factionName == "Horde" then
-                                factionColor = {r=1, g=0.3, b=0.3} -- Red
+                            if not gameGroups[gameName] then
+                                gameGroups[gameName] = {}
                             end
                             
-                            local displayText = name
-                            if characterName and realmName then
-                                displayText = string.format("%s (%s-%s)", name, characterName, realmName)
-                            elseif characterName then
-                                displayText = string.format("%s (%s)", name, characterName)
-                            end
-                            
-                            GameTooltip:AddLine(displayText, factionColor.r, factionColor.g, factionColor.b)
+                            table.insert(gameGroups[gameName], {
+                                name = name,
+                                character = characterName,
+                                realm = realmName,
+                                faction = factionName,
+                                zone = zoneName
+                            })
                         else
-                            GameTooltip:AddLine(name, 0.8, 0.8, 0.8) -- Gray for non-WoW games
+                            -- Friend online but not in a game
+                            if not gameGroups["Offline"] then
+                                gameGroups["Offline"] = {}
+                            end
+                            table.insert(gameGroups["Offline"], {name = name})
+                        end
+                    end
+                end
+                
+                -- Show WoW friends first with enhanced formatting
+                if gameGroups["WoW"] then
+                    GameTooltip:AddLine(string.format("World of Warcraft (%d):", #gameGroups["WoW"]), 0.8, 0.8, 1)
+                    for _, friend in ipairs(gameGroups["WoW"]) do
+                        local factionColor = {r=1, g=1, b=1} -- Default white
+                        if friend.faction == "Alliance" then
+                            factionColor = {r=0.3, g=0.6, b=1} -- Blue for Alliance
+                        elseif friend.faction == "Horde" then
+                            factionColor = {r=1, g=0.3, b=0.3} -- Red for Horde
+                        end
+                        
+                        local displayText = friend.name
+                        if friend.character and friend.zone then
+                            displayText = string.format("%s (%s in %s)", friend.name, friend.character, friend.zone)
+                        elseif friend.character and friend.realm then
+                            displayText = string.format("%s (%s-%s)", friend.name, friend.character, friend.realm)
+                        elseif friend.character then
+                            displayText = string.format("%s (%s)", friend.name, friend.character)
+                        end
+                        
+                        GameTooltip:AddLine("  " .. displayText, factionColor.r, factionColor.g, factionColor.b)
+                    end
+                end
+                
+                -- Show other games with better formatting
+                for gameName, friends in pairs(gameGroups) do
+                    if gameName ~= "WoW" and gameName ~= "Offline" and #friends > 0 then
+                        GameTooltip:AddLine(string.format("%s (%d):", gameName, #friends), 0.8, 0.8, 0.8)
+                        for i, friend in ipairs(friends) do
+                            if i <= 3 then -- Limit to prevent overflow
+                                GameTooltip:AddLine("  " .. friend.name, 0.8, 0.8, 0.8)
+                            elseif i == 4 then
+                                GameTooltip:AddLine(string.format("  ... and %d more", #friends - 3), 0.7, 0.7, 0.7)
+                                break
+                            end
                         end
                     end
                 end
             end
+            
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("Click to open friends panel", 0.8, 0.8, 0.8)
+        end,
+        onClick = function()
+            -- Open friends panel
+            if ToggleFriendsFrame then
+                ToggleFriendsFrame()
+            elseif FriendsFrame then
+                if FriendsFrame:IsShown() then
+                    FriendsFrame:Hide()
+                else
+                    FriendsFrame:Show()
+                end
+            end
         end
     },
-    latency = {
-        name = "Latency",
-        color = {1, 0.5, 1}, -- Light purple
-        update = function(frame)
-            local _, _, lagHome, lagWorld = GetNetStats()
-            -- Show the higher of home or world latency
-            local maxLatency = math.max(lagHome or 0, lagWorld or 0)
-            
-            frame.text:SetText(string.format("%dms", maxLatency))
-            
-            -- Color coding based on latency
-            if maxLatency > 300 then
-                frame.text:SetTextColor(1, 0.3, 0.3) -- Red for high latency
-            elseif maxLatency > 150 then
-                frame.text:SetTextColor(1, 1, 0.3) -- Yellow for medium latency
-            else
-                frame.text:SetTextColor(0.3, 1, 0.3) -- Green for good latency
-            end
-        end,
+    --[[latency = {
         tooltip = function()
             GameTooltip:SetText("Network Latency")
             local _, _, lagHome, lagWorld = GetNetStats()
@@ -576,7 +834,7 @@ local availableDataTexts = {
                 GameTooltip:AddLine("Very poor connection", 1, 0.3, 0.3)
             end
         end
-    },
+    },--]]
     mail = {
         name = "Mail",
         color = {1, 1, 0.8}, -- Light yellow
@@ -619,6 +877,515 @@ local availableDataTexts = {
                 end
             else
                 GameTooltip:AddLine("No new mail", 0.7, 0.7, 0.7)
+            end
+        end
+    },
+    experience = {
+        name = "Experience",
+        color = {0.3, 1, 0.8}, -- Light cyan
+        update = function(frame)
+            local currentXP = UnitXP("player")
+            local maxXP = UnitXPMax("player")
+            local restXP = GetXPExhaustion() or 0
+            local level = UnitLevel("player")
+            
+            if level >= GetMaxPlayerLevel() then
+                frame.text:SetText("Max Level")
+                frame.text:SetTextColor(1, 0.8, 0) -- Gold for max level
+            else
+                local percent = (currentXP / maxXP) * 100
+                frame.text:SetText(string.format("XP: %.1f%%", percent))
+                
+                -- Color based on rested XP
+                if restXP > 0 then
+                    frame.text:SetTextColor(0.3, 1, 0.8) -- Cyan for rested
+                else
+                    frame.text:SetTextColor(1, 1, 1) -- White for normal
+                end
+            end
+        end,
+        tooltip = function()
+            GameTooltip:SetText("Experience")
+            local currentXP = UnitXP("player")
+            local maxXP = UnitXPMax("player")
+            local restXP = GetXPExhaustion() or 0
+            local level = UnitLevel("player")
+            
+            if level >= GetMaxPlayerLevel() then
+                GameTooltip:AddLine("Maximum level reached!", 1, 0.8, 0)
+            else
+                local percent = (currentXP / maxXP) * 100
+                local needed = maxXP - currentXP
+                
+                GameTooltip:AddLine(string.format("Level %d: %.1f%%", level, percent), 1, 1, 1)
+                GameTooltip:AddLine(string.format("XP: %s / %s", BreakUpLargeNumbers(currentXP), BreakUpLargeNumbers(maxXP)), 0.8, 0.8, 0.8)
+                GameTooltip:AddLine(string.format("Needed: %s", BreakUpLargeNumbers(needed)), 0.8, 0.8, 0.8)
+                
+                if restXP > 0 then
+                    GameTooltip:AddLine(string.format("Rested: %s (%.1f%%)", BreakUpLargeNumbers(restXP), (restXP/maxXP)*100), 0.3, 1, 0.8)
+                end
+            end
+        end
+    },
+    bags = {
+        name = "Bags",
+        color = {0.8, 0.6, 0.4}, -- Brown/tan
+        update = function(frame)
+            local totalSlots = 0
+            local freeSlots = 0
+            
+            -- Count all bag slots (0-4 for retail, 0-3 for classic)
+            for bagID = 0, 4 do
+                if GetContainerNumSlots then
+                    local slots = GetContainerNumSlots(bagID) or 0
+                    local free = GetContainerNumFreeSlots and GetContainerNumFreeSlots(bagID) or 0
+                    totalSlots = totalSlots + slots
+                    freeSlots = freeSlots + free
+                elseif C_Container and C_Container.GetContainerNumSlots then
+                    local slots = C_Container.GetContainerNumSlots(bagID) or 0
+                    local free = C_Container.GetContainerNumFreeSlots and C_Container.GetContainerNumFreeSlots(bagID) or 0
+                    totalSlots = totalSlots + slots
+                    freeSlots = freeSlots + free
+                end
+            end
+            
+            local usedSlots = totalSlots - freeSlots
+            frame.text:SetText(string.format("Bags: %d/%d", usedSlots, totalSlots))
+            
+            -- Color based on fullness
+            local fillPercent = totalSlots > 0 and (usedSlots / totalSlots) or 0
+            if fillPercent >= 0.9 then
+                frame.text:SetTextColor(1, 0.3, 0.3) -- Red when almost full
+            elseif fillPercent >= 0.7 then
+                frame.text:SetTextColor(1, 1, 0.3) -- Yellow when getting full
+            else
+                frame.text:SetTextColor(0.8, 0.6, 0.4) -- Normal brown
+            end
+        end,
+        tooltip = function()
+            GameTooltip:SetText("Bag Space")
+            local totalSlots = 0
+            local freeSlots = 0
+            
+            -- Show each bag individually
+            for bagID = 0, 4 do
+                local slots = 0
+                local free = 0
+                local bagName = "Unknown"
+                
+                if GetContainerNumSlots then
+                    slots = GetContainerNumSlots(bagID) or 0
+                    free = GetContainerNumFreeSlots and GetContainerNumFreeSlots(bagID) or 0
+                elseif C_Container and C_Container.GetContainerNumSlots then
+                    slots = C_Container.GetContainerNumSlots(bagID) or 0
+                    free = C_Container.GetContainerNumFreeSlots and C_Container.GetContainerNumFreeSlots(bagID) or 0
+                end
+                
+                if slots > 0 then
+                    if bagID == 0 then
+                        bagName = "Backpack"
+                    else
+                        -- Use modern bag naming approach without deprecated API
+                        local bagSlotID = bagID + 19 -- Bag slots start at 20 (19+1), 21, 22, 23 for bags 1-4
+                        local link = GetInventoryItemLink("player", bagSlotID)
+                        if link then
+                            bagName = GetItemInfo(link) or ("Bag " .. bagID)
+                        else
+                            bagName = "Bag " .. bagID
+                        end
+                    end
+                    
+                    local used = slots - free
+                    GameTooltip:AddLine(string.format("%s: %d/%d", bagName, used, slots), 1, 1, 1)
+                    totalSlots = totalSlots + slots
+                    freeSlots = freeSlots + free
+                end
+            end
+            
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine(string.format("Total: %d/%d (%d free)", totalSlots - freeSlots, totalSlots, freeSlots), 0.8, 0.8, 0.8)
+        end
+    },
+    talents = {
+        name = "Talents",
+        color = {1, 0.8, 0.2}, -- Golden yellow
+        update = function(frame)
+            -- Check for unspent talent points
+            local unspentPoints = 0
+            
+            -- Try different methods for different WoW versions
+            if GetUnspentTalentPoints then
+                unspentPoints = GetUnspentTalentPoints() or 0
+            elseif C_SpecializationInfo and C_SpecializationInfo.GetUnspentSpecPoints then
+                unspentPoints = C_SpecializationInfo.GetUnspentSpecPoints() or 0
+            end
+            
+            if unspentPoints > 0 then
+                frame.text:SetText(string.format("Talents: %d", unspentPoints))
+                frame.text:SetTextColor(1, 1, 0.3) -- Bright yellow when unspent
+            else
+                frame.text:SetText("Talents: 0")
+                frame.text:SetTextColor(0.7, 0.7, 0.7) -- Gray when none
+            end
+        end,
+        tooltip = function()
+            GameTooltip:SetText("Talent Points")
+            local unspentPoints = 0
+            
+            if GetUnspentTalentPoints then
+                unspentPoints = GetUnspentTalentPoints() or 0
+            elseif C_SpecializationInfo and C_SpecializationInfo.GetUnspentSpecPoints then
+                unspentPoints = C_SpecializationInfo.GetUnspentSpecPoints() or 0
+            end
+            
+            if unspentPoints > 0 then
+                GameTooltip:AddLine(string.format("Unspent points: %d", unspentPoints), 1, 1, 0.3)
+                GameTooltip:AddLine("Click to open talent tree", 0.8, 0.8, 0.8)
+            else
+                GameTooltip:AddLine("No unspent talent points", 0.7, 0.7, 0.7)
+            end
+            
+            -- Show current spec if available
+            local specID = GetSpecialization and GetSpecialization()
+            if specID then
+                local specName = GetSpecializationInfo(specID)
+                if specName then
+                    GameTooltip:AddLine("Current: " .. specName, 0.8, 0.8, 1)
+                end
+            end
+        end,
+        onClick = function()
+            -- Try to open talent frame
+            if ToggleTalentFrame then
+                ToggleTalentFrame()
+            elseif PlayerTalentFrame then
+                if PlayerTalentFrame:IsShown() then
+                    PlayerTalentFrame:Hide()
+                else
+                    PlayerTalentFrame:Show()
+                end
+            end
+        end
+    },
+    reputation = {
+        name = "Reputation",
+        color = {0.5, 1, 0.5}, -- Light green
+        update = function(frame)
+            -- Get currently watched faction using modern API
+            local factionData = nil
+            if C_Reputation and C_Reputation.GetWatchedFactionData then
+                factionData = C_Reputation.GetWatchedFactionData()
+            end
+            
+            if factionData and factionData.name then
+                local name = factionData.name
+                local standing = factionData.reaction or 4
+                local min = factionData.currentReactionThreshold or 0
+                local max = factionData.nextReactionThreshold or 1
+                local value = factionData.currentStanding or 0
+                
+                local current = value - min
+                local total = max - min
+                local percent = total > 0 and (current / total) * 100 or 0
+                
+                frame.text:SetText(string.format("%s: %.0f%%", name:sub(1, 8), percent))
+                
+                -- Color based on standing
+                if standing >= 7 then -- Exalted
+                    frame.text:SetTextColor(0.8, 0.2, 1) -- Purple
+                elseif standing >= 6 then -- Revered
+                    frame.text:SetTextColor(0.2, 1, 0.2) -- Green
+                elseif standing >= 5 then -- Honored
+                    frame.text:SetTextColor(0.2, 0.8, 1) -- Blue
+                elseif standing >= 4 then -- Friendly
+                    frame.text:SetTextColor(1, 1, 1) -- White
+                else -- Unfriendly or below
+                    frame.text:SetTextColor(1, 0.3, 0.3) -- Red
+                end
+            else
+                frame.text:SetText("No Rep")
+                frame.text:SetTextColor(0.7, 0.7, 0.7)
+            end
+        end,
+        tooltip = function()
+            GameTooltip:SetText("Reputation")
+            local factionData = nil
+            if C_Reputation and C_Reputation.GetWatchedFactionData then
+                factionData = C_Reputation.GetWatchedFactionData()
+            end
+            
+            if factionData and factionData.name then
+                local name = factionData.name
+                local standing = factionData.reaction or 4
+                local min = factionData.currentReactionThreshold or 0
+                local max = factionData.nextReactionThreshold or 1
+                local value = factionData.currentStanding or 0
+                
+                local current = value - min
+                local total = max - min
+                local percent = total > 0 and (current / total) * 100 or 0
+                
+                -- Get standing text using modern method
+                local reactionNames = {
+                    [1] = "Hated",
+                    [2] = "Hostile", 
+                    [3] = "Unfriendly",
+                    [4] = "Neutral",
+                    [5] = "Friendly",
+                    [6] = "Honored",
+                    [7] = "Revered",
+                    [8] = "Exalted"
+                }
+                local standingText = reactionNames[standing] or "Unknown"
+                
+                GameTooltip:AddLine(name, 1, 1, 1)
+                GameTooltip:AddLine(string.format("%s: %.1f%%", standingText, percent), 0.8, 0.8, 1)
+                GameTooltip:AddLine(string.format("Progress: %s / %s", BreakUpLargeNumbers(current), BreakUpLargeNumbers(total)), 0.8, 0.8, 0.8)
+                
+                if total > current then
+                    GameTooltip:AddLine(string.format("Remaining: %s", BreakUpLargeNumbers(total - current)), 0.8, 0.8, 0.8)
+                end
+            else
+                GameTooltip:AddLine("No faction being watched", 0.7, 0.7, 0.7)
+                GameTooltip:AddLine("Select a faction to track in your reputation panel", 0.8, 0.8, 0.8)
+            end
+        end
+    },
+    currency = {
+        name = "Currency",
+        color = {1, 0.8, 0.3}, -- Golden
+        update = function(frame)
+            -- Try to get various currencies (this will need adjustment per expansion)
+            local currencies = {}
+            
+            -- Honor (if PvP)
+            if C_CurrencyInfo then
+                local honorInfo = C_CurrencyInfo.GetCurrencyInfo(1901) -- Honor currency ID
+                if honorInfo and honorInfo.quantity > 0 then
+                    table.insert(currencies, string.format("Honor: %s", BreakUpLargeNumbers(honorInfo.quantity)))
+                end
+                
+                -- Try other common currencies
+                local commonCurrencies = {
+                    2032, -- Trader's Tender
+                    2245, -- Flightstones
+                    2657, -- Residual Memories
+                }
+                
+                for _, currencyID in ipairs(commonCurrencies) do
+                    local info = C_CurrencyInfo.GetCurrencyInfo(currencyID)
+                    if info and info.quantity > 0 then
+                        local shortName = info.name:sub(1, 8)
+                        table.insert(currencies, string.format("%s: %s", shortName, BreakUpLargeNumbers(info.quantity)))
+                        break -- Only show first found currency to save space
+                    end
+                end
+            end
+            
+            if #currencies > 0 then
+                frame.text:SetText(currencies[1]) -- Show first currency
+            else
+                frame.text:SetText("Currency: 0")
+                frame.text:SetTextColor(0.7, 0.7, 0.7)
+            end
+        end,
+        tooltip = function()
+            GameTooltip:SetText("Currencies")
+            
+            if C_CurrencyInfo then
+                local found = false
+                local commonCurrencies = {
+                    1901, -- Honor
+                    2032, -- Trader's Tender  
+                    2245, -- Flightstones
+                    2657, -- Residual Memories
+                    2803, -- Whelpling Crest Fragment
+                    2804, -- Drake Crest Fragment
+                    2805, -- Wyrm Crest Fragment
+                    2806, -- Aspect Crest Fragment
+                }
+                
+                for _, currencyID in ipairs(commonCurrencies) do
+                    local info = C_CurrencyInfo.GetCurrencyInfo(currencyID)
+                    if info and info.quantity > 0 then
+                        local color = {1, 1, 1}
+                        if info.maxQuantity and info.maxQuantity > 0 then
+                            local percent = info.quantity / info.maxQuantity
+                            if percent >= 0.9 then color = {1, 0.3, 0.3} -- Red when near cap
+                            elseif percent >= 0.7 then color = {1, 1, 0.3} end -- Yellow when getting full
+                        end
+                        
+                        GameTooltip:AddLine(string.format("%s: %s", info.name, BreakUpLargeNumbers(info.quantity)), color[1], color[2], color[3])
+                        found = true
+                    end
+                end
+                
+                if not found then
+                    GameTooltip:AddLine("No significant currencies", 0.7, 0.7, 0.7)
+                end
+            else
+                GameTooltip:AddLine("Currency tracking not available", 0.7, 0.7, 0.7)
+            end
+        end
+    },
+    session = {
+        name = "Session",
+        color = {0.8, 1, 0.8}, -- Light green
+        update = function(frame)
+            local stats = GetSessionStats()
+            local hours = math.floor(stats.duration / 3600)
+            local minutes = math.floor((stats.duration % 3600) / 60)
+            
+            frame.text:SetText(string.format("Session: %dh %dm", hours, minutes))
+            
+            -- Color based on session length
+            if stats.duration > 14400 then -- > 4 hours
+                frame.text:SetTextColor(1, 0.3, 0.3) -- Red for very long sessions
+            elseif stats.duration > 7200 then -- > 2 hours
+                frame.text:SetTextColor(1, 1, 0.3) -- Yellow for long sessions
+            else
+                frame.text:SetTextColor(0.8, 1, 0.8) -- Light green for normal
+            end
+        end,
+        tooltip = function()
+            GameTooltip:SetText("Session Statistics")
+            GameTooltip:SetMinimumWidth(280)
+            
+            local stats = GetSessionStats()
+            
+            -- Time played
+            local hours = math.floor(stats.duration / 3600)
+            local minutes = math.floor((stats.duration % 3600) / 60)
+            local seconds = math.floor(stats.duration % 60)
+            GameTooltip:AddLine(string.format("Time Played: %dh %dm %ds", hours, minutes, seconds), 1, 1, 1)
+            
+            -- XP and Gold gains
+            if stats.levelsGained > 0 then
+                GameTooltip:AddLine(string.format("Levels Gained: %d", stats.levelsGained), 0.3, 1, 0.3)
+            end
+            
+            if stats.xpGained > 0 then
+                GameTooltip:AddLine(string.format("XP Gained: %s", BreakUpLargeNumbers(stats.xpGained)), 0.8, 0.8, 1)
+                GameTooltip:AddLine(string.format("XP/Hour: %s", BreakUpLargeNumbers(math.floor(stats.xpPerHour))), 0.8, 0.8, 1)
+            end
+            
+            if stats.goldGained ~= 0 then
+                local goldColor = stats.goldGained > 0 and {0.3, 1, 0.3} or {1, 0.3, 0.3}
+                local goldText = stats.goldGained > 0 and "Gold Gained" or "Gold Lost"
+                GameTooltip:AddLine(string.format("%s: %s", goldText, BreakUpLargeNumbers(math.abs(stats.goldGained))), goldColor[1], goldColor[2], goldColor[3])
+                GameTooltip:AddLine(string.format("Gold/Hour: %s", BreakUpLargeNumbers(math.floor(math.abs(stats.goldPerHour)))), goldColor[1], goldColor[2], goldColor[3])
+            end
+            
+            -- Performance stats
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("Performance:", 1, 1, 0)
+            GameTooltip:AddLine(string.format("FPS: %.1f avg (%.0f-%.0f)", stats.avgFPS, stats.minFPS, stats.maxFPS), 0.8, 0.8, 0.8)
+            GameTooltip:AddLine(string.format("Latency: %.0f avg (%.0f-%.0f)", stats.avgLatency, stats.minLatency, stats.maxLatency), 0.8, 0.8, 0.8)
+        end
+    },
+    performance = {
+        name = "Performance",
+        color = {1, 0.8, 1}, -- Light purple
+        update = function(frame)
+            local stats = GetSessionStats()
+            local fps = GetFramerate()
+            local _, _, lagHome, lagWorld = GetNetStats()
+            local maxLatency = math.max(lagHome or 0, lagWorld or 0)
+            
+            -- Show both FPS and latency in compact format
+            frame.text:SetText(string.format("%.0f FPS | %dms", fps, maxLatency))
+            
+            -- Color based on worst performing metric
+            local fpsGood = fps >= 60
+            local fpsOk = fps >= 30
+            local latencyGood = maxLatency <= 100
+            local latencyOk = maxLatency <= 200
+            
+            if fpsGood and latencyGood then
+                frame.text:SetTextColor(0.3, 1, 0.3) -- Green - both good
+            elseif (fpsOk or fpsGood) and (latencyOk or latencyGood) then
+                frame.text:SetTextColor(1, 1, 0.3) -- Yellow - acceptable
+            else
+                frame.text:SetTextColor(1, 0.3, 0.3) -- Red - poor performance
+            end
+        end,
+        tooltip = function()
+            GameTooltip:SetText("Performance Monitor")
+            GameTooltip:SetMinimumWidth(280)
+            
+            local stats = GetSessionStats()
+            local fps = GetFramerate()
+            local _, _, lagHome, lagWorld = GetNetStats()
+            local maxLatency = math.max(lagHome or 0, lagWorld or 0)
+            
+            -- Current performance with color coding
+            GameTooltip:AddLine("Current Performance:", 1, 1, 0)
+            
+            -- FPS with assessment
+            local fpsColor = {1, 1, 1}
+            local fpsAssessment = ""
+            if fps >= 60 then
+                fpsColor = {0.3, 1, 0.3}
+                fpsAssessment = " (Excellent)"
+            elseif fps >= 30 then
+                fpsColor = {1, 1, 0.3}
+                fpsAssessment = " (Good)"
+            elseif fps >= 20 then
+                fpsColor = {1, 0.8, 0.3}
+                fpsAssessment = " (Fair)"
+            else
+                fpsColor = {1, 0.3, 0.3}
+                fpsAssessment = " (Poor)"
+            end
+            GameTooltip:AddLine(string.format("FPS: %.1f%s", fps, fpsAssessment), fpsColor[1], fpsColor[2], fpsColor[3])
+            
+            -- Latency with assessment
+            local latencyColor = {1, 1, 1}
+            local latencyAssessment = ""
+            if maxLatency <= 50 then
+                latencyColor = {0.3, 1, 0.3}
+                latencyAssessment = " (Excellent)"
+            elseif maxLatency <= 100 then
+                latencyColor = {0.8, 1, 0.3}
+                latencyAssessment = " (Good)"
+            elseif maxLatency <= 200 then
+                latencyColor = {1, 1, 0.3}
+                latencyAssessment = " (Fair)"
+            else
+                latencyColor = {1, 0.3, 0.3}
+                latencyAssessment = " (Poor)"
+            end
+            GameTooltip:AddLine(string.format("Latency: %d ms%s", maxLatency, latencyAssessment), latencyColor[1], latencyColor[2], latencyColor[3])
+            
+            -- Detailed latency breakdown
+            GameTooltip:AddLine(string.format("  Home: %d ms | World: %d ms", lagHome or 0, lagWorld or 0), 0.8, 0.8, 0.8)
+            
+            -- Session performance statistics
+            if #sessionStats.fpsHistory > 0 then
+                GameTooltip:AddLine(" ")
+                GameTooltip:AddLine("Session Statistics:", 1, 1, 0)
+                GameTooltip:AddLine(string.format("FPS: %.1f avg (%.0f-%.0f)", stats.avgFPS, stats.minFPS, stats.maxFPS), 0.8, 0.8, 1)
+                GameTooltip:AddLine(string.format("Latency: %.0f avg (%.0f-%.0f)", stats.avgLatency, stats.minLatency, stats.maxLatency), 0.8, 0.8, 1)
+                
+                -- Overall session performance assessment
+                GameTooltip:AddLine(" ")
+                if stats.avgFPS >= 50 and stats.avgLatency <= 100 then
+                    GameTooltip:AddLine("Excellent session performance", 0.3, 1, 0.3)
+                elseif stats.avgFPS >= 30 and stats.avgLatency <= 150 then
+                    GameTooltip:AddLine("Good session performance", 1, 1, 0.3)
+                elseif stats.avgFPS >= 20 and stats.avgLatency <= 250 then
+                    GameTooltip:AddLine("Fair session performance", 1, 0.8, 0.3)
+                else
+                    GameTooltip:AddLine("Poor session performance", 1, 0.3, 0.3)
+                end
+                
+                -- Performance tips
+                if stats.avgFPS < 30 then
+                    GameTooltip:AddLine("Tip: Lower graphics settings for better FPS", 0.7, 0.7, 0.7)
+                end
+                if stats.avgLatency > 150 then
+                    GameTooltip:AddLine("Tip: Check network connection", 0.7, 0.7, 0.7)
+                end
             end
         end
     }
@@ -910,30 +1677,12 @@ local function CreateMinimapDataBar()
     
     minimapDataBar = CreateFrame("Frame", "MiniMapimousMinimapDataBar", UIParent, BackdropTemplateMixin and "BackdropTemplate")
     
-    -- Set size to exactly match minimap width (accounting for scale)
-    local minimapWidth = Minimap:GetWidth() * Minimap:GetScale()
-    minimapDataBar:SetSize(minimapWidth, 25)
+    -- Set height only, width will be determined by anchor points
+    minimapDataBar:SetHeight(25)
     
-    -- Position to align perfectly with minimap edges
+    -- Position directly below minimap using dual anchor points for perfect edge alignment
     minimapDataBar:SetPoint("TOPLEFT", Minimap, "BOTTOMLEFT", 0, -5)
     minimapDataBar:SetPoint("TOPRIGHT", Minimap, "BOTTOMRIGHT", 0, -5)
-    
-    -- Set scale to match minimap scale
-    minimapDataBar:SetScale(Minimap:GetScale())
-    
-    -- NOT draggable - minimap bar should stay attached to minimap
-    -- Removed all dragging functionality
-    
-    -- No visual feedback for dragging since it's not draggable
-    minimapDataBar:SetScript("OnEnter", function(self)
-        -- Just show that it exists, no dragging feedback
-        self:SetBackdropBorderColor(0.5, 0.5, 0.5, 1) -- Slightly lighter border on hover
-    end)
-    
-    minimapDataBar:SetScript("OnLeave", function(self)
-        -- Restore normal border color
-        self:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8) -- Normal border
-    end)
     
     -- Background
     minimapDataBar:SetBackdrop({
@@ -956,39 +1705,57 @@ local function CreateMinimapDataBar()
     minimapDataBar:SetBackdropColor(0, 0, 0, 0.8 * opacity)
     minimapDataBar:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8 * opacity)
     
+    minimapDataBar:SetScript("OnEnter", function(self)
+        self:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+    end)
+    
+    minimapDataBar:SetScript("OnLeave", function(self)
+        self:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
+    end)
+    
     return minimapDataBar
 end
 
 -- Update minimap data bar size and position to match minimap scale
 function DataTexts:UpdateMinimapDataBarScale()
-    if not minimapDataBar then return end
+    if not minimapDataBar then 
+        return 
+    end
     
-    local minimapScale = Minimap:GetScale()
-    
-    -- Update scale to match minimap
-    minimapDataBar:SetScale(minimapScale)
-    
-    -- Recalculate size to match minimap width (at base scale, then scaled)
-    local minimapWidth = Minimap:GetWidth()
-    minimapDataBar:SetSize(minimapWidth, 25)
-    
-    -- Reposition to maintain perfect alignment with minimap edges
+    -- Clear all points and reanchor to ensure perfect alignment
     minimapDataBar:ClearAllPoints()
     minimapDataBar:SetPoint("TOPLEFT", Minimap, "BOTTOMLEFT", 0, -5)
     minimapDataBar:SetPoint("TOPRIGHT", Minimap, "BOTTOMRIGHT", 0, -5)
     
-    -- Reposition data texts within the scaled bar
-    self:PositionMinimapDataTexts()
+    -- Height remains constant
+    minimapDataBar:SetHeight(25)
+    
+    -- Reposition data texts within the bar after a small delay to ensure the bar has resized
+    C_Timer.After(0.1, function()
+        self:PositionMinimapDataTexts()
+    end)
 end
 
 -- Position data texts in minimap area
 function DataTexts:PositionMinimapDataTexts()
     local count = 0
+    local visibleFrames = {}
+    
+    -- Collect visible frames and limit to 3 maximum
     for _, frame in pairs(minimapDataTexts) do
         if frame:IsShown() then
             count = count + 1
+            if count <= 3 then -- LIMIT: Only allow 3 data texts on minimap bar
+                table.insert(visibleFrames, frame)
+            else
+                -- Hide excess data texts beyond the limit
+                frame:Hide()
+            end
         end
     end
+    
+    -- Update count to reflect actual visible frames
+    count = #visibleFrames
     
     -- Only hide if user explicitly disabled it, not if count is 0
     if not Options:get("showMinimapDataBar") then
@@ -1007,55 +1774,85 @@ function DataTexts:PositionMinimapDataTexts()
     
     -- If no data texts, the bar will still maintain minimap width
     if count == 0 then
-        -- Bar maintains minimap alignment even when empty
         return
     end
     
-    -- First update all data texts to get current content
-    for key, frame in pairs(minimapDataTexts) do
-        if frame:IsShown() and frame.config and frame.config.update then
+    -- First update all visible data texts to get current content
+    for _, frame in ipairs(visibleFrames) do
+        if frame.config and frame.config.update then
             frame.config.update(frame)
         end
     end
     
-    -- Calculate actual text widths dynamically
-    local totalTextWidth = 0
-    local textWidths = {}
-    local maxTextWidth = 0
+    -- Get the actual bar width (this will be the minimap width due to anchoring)
+    local actualBarWidth = minimapDataBar:GetWidth()
+    local backdropInsets = 8 -- Account for backdrop border insets (4px left + 4px right)
+    local padding = 8 -- Padding on sides
+    local availableWidth = actualBarWidth - backdropInsets - padding
     
-    for key, frame in pairs(minimapDataTexts) do
-        if frame:IsShown() and frame.text then
-            -- Get actual text width with padding, accounting for icons
-            local baseWidth = frame.text:GetStringWidth() + 12 -- Reduced from 20px to 12px padding
-            local iconWidth = frame.icon and 20 or 0 -- 16px icon + 4px spacing
-            local textWidth = math.max(baseWidth + iconWidth, 50) -- Reduced minimum from 80px to 50px
-            textWidths[key] = textWidth
-            totalTextWidth = totalTextWidth + textWidth
-            maxTextWidth = math.max(maxTextWidth, textWidth)
+    -- Start with default font size and reduce if necessary
+    local fontSize = 15 -- Default minimap font size
+    local textsFit = false
+    local attempts = 0
+    local maxAttempts = 5
+    
+    while not textsFit and attempts < maxAttempts do
+        attempts = attempts + 1
+        
+        -- Update font sizes for all visible texts
+        for _, frame in ipairs(visibleFrames) do
+            if frame.text then
+                frame.text:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+            end
+        end
+        
+        -- Calculate text widths with current font size
+        local totalTextWidth = 0
+        local textWidths = {}
+        
+        for i, frame in ipairs(visibleFrames) do
+            if frame.text then
+                local baseWidth = frame.text:GetStringWidth() + 6 -- Slightly more padding for 3 texts
+                local iconWidth = frame.icon and 18 or 0 -- Icon space
+                local textWidth = baseWidth + iconWidth
+                textWidths[i] = textWidth
+                totalTextWidth = totalTextWidth + textWidth
+            end
+        end
+        
+        -- Calculate spacing (more generous for 3 texts)
+        local spacing = count > 1 and 4 or 0 -- Increased spacing for better layout
+        local totalSpacing = (count - 1) * spacing
+        local contentWidth = totalTextWidth + totalSpacing
+        
+        -- Check if content fits
+        if contentWidth <= availableWidth or fontSize <= 8 then
+            textsFit = true
+            
+            -- Position texts with proper spacing
+            local startX = -(contentWidth) / 2
+            local currentX = startX
+            
+            for i, frame in ipairs(visibleFrames) do
+                frame:ClearAllPoints()
+                frame:SetPoint("CENTER", minimapDataBar, "CENTER", currentX + (textWidths[i] / 2), 0)
+                currentX = currentX + textWidths[i] + spacing
+            end
+        else
+            -- Reduce font size and try again
+            fontSize = fontSize - 1
         end
     end
     
-    -- Calculate spacing and ensure bar uses full minimap width
-    local minimapWidth = Minimap:GetWidth()
-    local spacing = count > 1 and 4 or 0 -- Reduced from 8px to 4px between texts
-    local totalSpacing = (count - 1) * spacing
-    local padding = 12 -- Reduced from 16px to 12px padding on sides
-    
-    -- The bar always matches minimap width exactly
-    -- We don't change the bar width - it's set by the minimap alignment
-    
-    -- Position texts with proper spacing, centered within the minimap-width bar
-    local availableWidth = minimapWidth - padding
-    local startX = -(totalTextWidth + totalSpacing) / 2
-    local currentX = startX
-    
-    for key, frame in pairs(minimapDataTexts) do
-        if frame:IsShown() then
-            frame:ClearAllPoints()
-            frame:SetPoint("CENTER", minimapDataBar, "CENTER", currentX + (textWidths[key] / 2), 0)
-            currentX = currentX + textWidths[key] + spacing
+    -- Show warning if some data texts were hidden due to limit
+    local totalAssigned = 0
+    for _, frame in pairs(minimapDataTexts) do
+        if frame:IsShown() or frame:IsVisible() then
+            totalAssigned = totalAssigned + 1
         end
     end
+    
+    -- Excess data texts are automatically handled by hiding them
 end
 
 -- Position data texts in the first data bar
@@ -1243,6 +2040,11 @@ function DataTexts:RefreshDataTexts()
         secondDataTexts[key] = nil
     end
     
+    -- Count assignments for each bar
+    local minimapCount = 0
+    local otherCount = 0
+    local secondCount = 0
+    
     -- Reassign based on current settings
     for key, config in pairs(availableDataTexts) do
         local position = Options:get("dataText_" .. key .. "_position") or "other"
@@ -1264,6 +2066,7 @@ function DataTexts:RefreshDataTexts()
                 frame:SetFrameLevel(minimapDataBar:GetFrameLevel() + 1)
                 minimapDataTexts[key] = frame
                 frame:Show()
+                minimapCount = minimapCount + 1
             elseif position == "other" then
                 if not otherDataBar then
                     CreateOtherDataBar()
@@ -1274,6 +2077,7 @@ function DataTexts:RefreshDataTexts()
                 frame:SetFrameLevel(otherDataBar:GetFrameLevel() + 1)
                 otherDataTexts[key] = frame
                 frame:Show()
+                otherCount = otherCount + 1
             elseif position == "second" then
                 if not secondDataBar then
                     CreateSecondDataBar()
@@ -1284,9 +2088,18 @@ function DataTexts:RefreshDataTexts()
                 frame:SetFrameLevel(secondDataBar:GetFrameLevel() + 1)
                 secondDataTexts[key] = frame
                 frame:Show()
+                secondCount = secondCount + 1
             end
         end
     end
+    
+    -- print(string.format("MiniMapimous: Assigned %d texts to minimap, %d to first bar, %d to second bar", minimapCount, otherCount, secondCount))
+    
+    -- Warn if too many data texts assigned to minimap
+    -- if minimapCount > 3 then
+    --     print(string.format("MiniMapimous: WARNING - Only 3 data texts can fit on minimap bar (assigned %d)", minimapCount))
+    --     print("MiniMapimous: Consider moving some to First or Second data bar for better layout")
+    -- end
     
     -- Position everything
     self:PositionMinimapDataTexts()
@@ -1302,22 +2115,29 @@ function DataTexts:RefreshDataTexts()
     end)
 end
 
--- Update all visible data texts
-local function UpdateDataTexts()
+-- Consolidated update function for master timer
+function DataTexts:UpdateAllDataTexts()
+    -- Update session statistics
+    UpdateSessionStats()
+    
     for key, frame in pairs(dataTextFrames) do
         if frame:IsShown() and frame.config and frame.config.update then
             frame.config.update(frame)
         end
     end
     
-    -- Reposition both bars occasionally for dynamic width changes
-    -- This prevents infinite repositioning loops while still allowing dynamic resizing
-    if math.random(1, 5) == 1 then -- 20% of the time (every 5 seconds on average)
-        local DataTexts = addon.import("DataTexts")
-        DataTexts:PositionMinimapDataTexts()
-        PositionOtherDataTexts() -- Also reposition the other data bar for dynamic width
-        PositionSecondDataTexts() -- Also reposition the second data bar for dynamic width
+    -- Reduce repositioning frequency even more for better performance
+    if math.random(1, 15) == 1 then -- Changed from 10 to 15 (every 15 seconds on average)
+        self:PositionMinimapDataTexts()
+        PositionOtherDataTexts()
+        PositionSecondDataTexts()
     end
+end
+
+-- Update all visible data texts (DEPRECATED - use UpdateAllDataTexts instead)
+local function UpdateDataTexts()
+    -- This function is kept for compatibility but is no longer used
+    -- The master timer now calls DataTexts:UpdateAllDataTexts() directly
 end
 
 -- Initialize data texts
@@ -1325,6 +2145,16 @@ function DataTexts:Initialize()
     -- Ensure lockDataBars has a default value
     if Options:get("lockDataBars") == nil then
         Options:set("lockDataBars", false)
+    end
+    
+    -- Ensure first data bar is enabled by default so data texts appear
+    if Options:get("showOtherDataBar") == nil then
+        Options:set("showOtherDataBar", true)
+    end
+    
+    -- Enable minimap data bar by default too
+    if Options:get("showMinimapDataBar") == nil then
+        Options:set("showMinimapDataBar", true)
     end
     
     -- Enable CPU profiling for performance tracking
@@ -1337,15 +2167,10 @@ function DataTexts:Initialize()
         ResetCPUUsage()
     end)
     
-    -- Create update timer
-    local updateFrame = CreateFrame("Frame")
-    updateFrame:SetScript("OnUpdate", function(self, elapsed)
-        self.timer = (self.timer or 0) + elapsed
-        if self.timer >= 1 then -- Update every second
-            UpdateDataTexts()
-            self.timer = 0
-        end
-    end)
+    -- Initialize session statistics tracking
+    InitializeSessionStats()
+    
+    -- Timer now handled by master timer in MiniMapimous.lua
     
     -- Register mail events for immediate updates
     local mailEventFrame = CreateFrame("Frame")

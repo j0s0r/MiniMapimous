@@ -40,7 +40,6 @@ local defaultOptions = {
     otherDataBarFontSize = 13,
     secondDataBarFontSize = 13,
     -- Default data text positions
-    dataText_fps_position = "minimap",
     dataText_memory_position = "minimap",
     dataText_coordinates_position = "other",
     dataText_clock_position = "minimap",
@@ -48,7 +47,6 @@ local defaultOptions = {
     dataText_gold_position = "other",
     dataText_guild_position = "other",
     dataText_friends_position = "other",
-    dataText_latency_position = "other",
     dataText_mail_position = "other",
     whitelist = {
         -- Common addon buttons that should always be collected
@@ -89,7 +87,7 @@ function Options:init()
     end
     
     -- Force update data text positions if they don't exist or are using old defaults
-    local dataTextKeys = {"fps", "memory", "coordinates", "clock", "durability", "gold", "guild", "friends", "latency", "mail"}
+    local dataTextKeys = {"memory", "coordinates", "clock", "durability", "gold", "guild", "friends", "mail", "experience", "bags", "talents", "reputation", "currency", "session", "performance"}
     for _, key in ipairs(dataTextKeys) do
         local optionKey = "dataText_" .. key .. "_position"
         local currentValue = MiniMapimousDB[optionKey]
@@ -192,10 +190,14 @@ local function CreateConfigPanel()
         if addon.UpdateBarPosition then
             addon.UpdateBarPosition()
         end
+        
         -- Update minimap data bar scale
         local DataTexts = addon.import("DataTexts")
         if DataTexts and DataTexts.UpdateMinimapDataBarScale then
-            DataTexts:UpdateMinimapDataBarScale()
+            -- Small delay to ensure minimap has updated first
+            C_Timer.After(0.1, function()
+                DataTexts:UpdateMinimapDataBarScale()
+            end)
         end
         
         -- Cancel any existing timer
@@ -421,7 +423,7 @@ local function CreateConfigPanel()
     local availableTexts = DataTexts:GetAvailableDataTexts()
     
     local yOffset = -8 -- Start right after the subtitle
-    local dataTextOrder = {"fps", "memory", "coordinates", "clock", "durability", "gold", "guild", "friends", "latency", "mail"}
+    local dataTextOrder = {"memory", "coordinates", "clock", "durability", "gold", "guild", "friends", "mail", "experience", "bags", "talents", "reputation", "currency", "session", "performance"}
     
     -- Function to create dropdown for data text positioning
     local function CreateDataTextDropdown(key, config, parent, yPos)
@@ -437,9 +439,49 @@ local function CreateConfigPanel()
         
         local function OnClick(self)
             Options:set("dataText_" .. key .. "_position", self.value)
-            UIDropDownMenu_SetText(dropdown, self.text)
+            
+            -- Auto-enable target data bar when assigning data text to it
+            if self.value == "minimap" then
+                Options:set("showMinimapDataBar", true)
+                if showMinimapDataBarCheck then
+                    showMinimapDataBarCheck:SetChecked(true)
+                end
+            elseif self.value == "other" then
+                Options:set("showOtherDataBar", true)
+                if showOtherDataBarCheck then
+                    showOtherDataBarCheck:SetChecked(true)
+                end
+            elseif self.value == "second" then
+                Options:set("showSecondDataBar", true)
+                if showSecondDataBarCheck then
+                    showSecondDataBarCheck:SetChecked(true)
+                end
+            end
+            
+            -- Get display text from value instead of self.text
+            local displayText = "First Data Bar"
+            if self.value == "hide" then 
+                displayText = "Hide"
+            elseif self.value == "minimap" then 
+                displayText = "Minimap"
+            elseif self.value == "second" then 
+                displayText = "Second Data Bar"
+            end
+            
+            -- Properly update dropdown text to show selection
+            UIDropDownMenu_SetText(dropdown, displayText)
+            
+            -- Force close the dropdown menu
+            CloseDropDownMenus()
+            
+            -- Refresh the data texts
             local DataTexts = addon.import("DataTexts")
             DataTexts:RefreshDataTexts()
+            
+            -- Small delay to ensure UI updates properly, then refresh dropdown
+            C_Timer.After(0.1, function()
+                UIDropDownMenu_SetText(dropdown, displayText)
+            end)
         end
         
         local function Initialize(self, level)
@@ -477,6 +519,11 @@ local function CreateConfigPanel()
         elseif currentPos == "second" then displayText = "Second Data Bar"
         end
         UIDropDownMenu_SetText(dropdown, displayText)
+        
+        -- Ensure dropdown shows selection immediately
+        C_Timer.After(0.1, function()
+            UIDropDownMenu_SetText(dropdown, displayText)
+        end)
         
         return dropdown
     end

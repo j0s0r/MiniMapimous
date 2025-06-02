@@ -1,8 +1,8 @@
-## Interface: 100200
+## Interface: 110105, 110107
 ## Title: MiniMapimous
 ## Notes: Minimap enhancement addon with data texts
-## Author: Your Name
-## Version: 1.0
+## Author: Knutballs : EU-Ravencrest
+## Version: V02.06.2025:01
 ## SavedVariables: MiniMapimousDB
 
 Config.lua

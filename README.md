@@ -11,10 +11,15 @@ A clean and modern minimap enhancement addon for World of Warcraft with customiz
 - Scalable from 50% to 200%
 
 ### 📊 **Data Text Bars**
-- **Minimap Data Bar**: Attached below minimap
+- **Minimap Data Bar**: Attached below minimap (up to 3 data texts)
 - **First Data Bar**: Movable, customizable positioning
 - **Second Data Bar**: Optional additional bar
-- **10 Data Text Types**: FPS, Memory, Coordinates, Clock, Durability, Gold, Guild, Friends, Latency, Mail
+- **15 Data Text Types**: Memory, Coordinates, Clock, Durability, Gold, Guild, Friends, Mail, Experience, Bags, Talents, Reputation, Currency, Session, Performance
+
+### 📈 **Enhanced Data Tracking**
+- **Session Statistics**: Track XP/gold gains, playtime, and performance over time
+- **Performance History**: FPS and latency monitoring with min/max/average tracking
+- **Enhanced Tooltips**: Detailed breakdowns for guild members by zone, addon performance, etc.
 
 ### 🔧 **Intelligent Button Collection**
 - Automatically collects addon buttons into a clean bar
@@ -25,10 +30,11 @@ A clean and modern minimap enhancement addon for World of Warcraft with customiz
 
 ### 🎨 **Customization Options**
 - Individual font sizes for each data bar (8-20px)
-- Opacity controls for movable bars
+- **Full Opacity Range**: Complete transparency support (0-100%)
 - Flexible data text positioning (hide, minimap, first bar, second bar)
 - Lock/unlock movable bars
-- Color-coded data texts (FPS, durability, latency)
+- **Smart Color Coding**: Guild (green), Friends (cyan), performance indicators
+- **Faction-Aware Tooltips**: Guild members color-coded by Alliance/Horde
 
 ## 📥 Installation
 
@@ -50,26 +56,39 @@ Access the configuration panel through:
 - Main Menu > Interface > AddOns > MiniMapimous
 
 ### Data Text Features
-- **FPS**: Color-coded performance indicator (Green ≥60, Yellow 30-59, Red <30)
-- **Memory**: Real-time addon memory and CPU usage with detailed tooltip
-- **Coordinates**: Current player position
+- **Memory**: Real-time addon memory/CPU usage with detailed performance breakdown
+- **FPS/Performance**: Color-coded performance indicator (Green ≥60, Yellow 30-59, Red <30)
+- **Coordinates**: Current player position with zone information
 - **Clock**: Local time with server time in tooltip, click to open calendar
 - **Durability**: Gear condition with color coding (Green ≥75%, Yellow 25-74%, Red <25%)
-- **Gold**: Formatted currency display
-- **Guild**: Online member count with member list tooltip
-- **Friends**: Battle.net and WoW friends online
-- **Latency**: Network ping with color coding
-- **Mail**: Unread mail count (unclickable, for display only)
+- **Gold**: Formatted currency display with session tracking
+- **Guild**: Online member count only (green), with enhanced tooltip showing members by zone
+- **Friends**: WoW online friends count (cyan), with Battle.net details in tooltip
+- **Session**: Playtime, XP/gold gains, and rates per hour
+- **Performance**: Current FPS/latency with session statistics and performance tips
+- **Mail**: Unread mail indicator (display only, unclickable)
+- **Experience**: XP progress with rested bonus tracking
+- **Bags**: Bag space usage with per-bag breakdown
+- **Talents**: Unspent talent point notifications
+- **Reputation**: Watched faction progress
+- **Currency**: Various game currencies (Honor, Flightstones, etc.)
 
-## 🎯 Recent Updates
+## 🏆 **Code Quality**
+- Professional, publication-ready codebase
+- Optimized performance with smart caching
+- Clean, maintainable architecture
+- Comprehensive error handling
 
-- Simplified interface with clean single-column layout
-- Removed complex detach/minimize functionality for better stability
-- Enhanced data text color coding and tooltips
-- Perfect minimap data bar alignment and scaling
-- Unclickable mail data text (display only)
-- Font size controls for First and Second data bars
-- Streamlined button collection focusing on mouseover functionality
+## 🎯 **Recent Updates**
+
+- **Enhanced data texts**: Guild shows online only, Friends shows WoW only
+- **Session tracking**: XP/gold gains, performance history, playtime stats
+- **Full opacity range**: Transparency from 0-100% (was 10-100%)
+- **Smart tooltips**: Zone grouping for guild, game grouping for friends
+- **Performance monitoring**: FPS/latency history with assessments
+- **Publication-ready**: Professional code cleanup and optimization
+- **Simplified interface**: Clean single-column layout for better usability
+- **Perfect minimap alignment**: Data bar scaling matches minimap perfectly
 
 ## 🐛 Known Issues
 

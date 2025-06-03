@@ -176,14 +176,12 @@ end
 local availableDataTexts = {
     memory = {
         name = "Memory",
-        color = {0.7, 1, 0.7}, -- Light green
+        color = {0.7, 1, 0.7},
         update = function(frame)
-            -- Use cached addon data for much better performance
             local addonData = GetCachedAddonData()
             local totalMemory = addonData.totalMemory or 0
             local totalCPU = addonData.totalCPU or 0
             
-            -- Display both memory and CPU usage
             local memStr = ""
             if totalMemory > 1024 then
                 memStr = string.format("%.1fMB", totalMemory / 1024)
@@ -193,7 +191,7 @@ local availableDataTexts = {
             
             local cpuStr = ""
             if totalCPU > 1000 then
-                cpuStr = string.format("%.1fs", totalCPU / 1000) -- Show in seconds for very high values
+                cpuStr = string.format("%.1fs", totalCPU / 1000)
             elseif totalCPU > 1 then
                 cpuStr = string.format("%.1fms", totalCPU)
             else
@@ -202,23 +200,20 @@ local availableDataTexts = {
             
             frame.text:SetText(string.format("%s | %s", memStr, cpuStr))
             
-            -- Color coding based on memory usage (primary indicator)
-            if totalMemory > 50 * 1024 then -- > 50MB
-                frame.text:SetTextColor(1, 0.3, 0.3) -- Red
-            elseif totalMemory > 20 * 1024 then -- > 20MB
-                frame.text:SetTextColor(1, 1, 0.3) -- Yellow
+            if totalMemory > 50 * 1024 then
+                frame.text:SetTextColor(1, 0.3, 0.3)
+            elseif totalMemory > 20 * 1024 then
+                frame.text:SetTextColor(1, 1, 0.3)
             else
-                frame.text:SetTextColor(0.3, 1, 0.3) -- Green
+                frame.text:SetTextColor(0.3, 1, 0.3)
             end
         end,
         tooltip = function()
             GameTooltip:SetText("Addon Performance (CPU/Memory)")
             
-            -- Update both memory and CPU data
             UpdateAddOnMemoryUsage()
             UpdateAddOnCPUUsage()
             
-            -- Collect all addon data
             local addonData = {}
             local totalMemory = 0
             local totalCPU = 0
@@ -241,33 +236,28 @@ local availableDataTexts = {
                 end
             end
             
-            -- Sort by memory usage (highest first)
             table.sort(addonData, function(a, b) return a.memory > b.memory end)
             
-            -- Show totals
             GameTooltip:AddLine(string.format("Total: %.1f MB | %.1f ms CPU (%d addons)", totalMemory / 1024, totalCPU, loadedCount), 1, 1, 1)
             GameTooltip:AddLine(" ")
             
-            -- Show all addons in a compact format
             GameTooltip:AddLine("All Loaded Addons:", 1, 1, 0)
             
             for i, addon in ipairs(addonData) do
-                local color = {1, 1, 1} -- White default
+                local color = {1, 1, 1}
                 
-                -- Color code based on memory usage
-                if addon.memory > 5 * 1024 then -- > 5MB
-                    color = {1, 0.3, 0.3} -- Red
-                elseif addon.memory > 2 * 1024 then -- > 2MB
-                    color = {1, 1, 0.3} -- Yellow
-                elseif addon.memory > 1 * 1024 then -- > 1MB
-                    color = {1, 0.8, 0.3} -- Orange
-                elseif addon.memory > 512 then -- > 512KB
-                    color = {0.8, 1, 0.8} -- Light green
+                if addon.memory > 5 * 1024 then
+                    color = {1, 0.3, 0.3}
+                elseif addon.memory > 2 * 1024 then
+                    color = {1, 1, 0.3}
+                elseif addon.memory > 1 * 1024 then
+                    color = {1, 0.8, 0.3}
+                elseif addon.memory > 512 then
+                    color = {0.8, 1, 0.8}
                 else
-                    color = {0.6, 0.6, 0.6} -- Gray for very low usage
+                    color = {0.6, 0.6, 0.6}
                 end
                 
-                -- Format memory and CPU
                 local memStr = addon.memory > 1024 and string.format("%.1fMB", addon.memory / 1024) or string.format("%.0fKB", addon.memory)
                 local cpuStr = addon.cpu > 1 and string.format("%.1fms", addon.cpu) or string.format("%.2fms", addon.cpu)
                 
@@ -280,7 +270,7 @@ local availableDataTexts = {
     },
     coordinates = {
         name = "Coordinates",
-        color = {1, 1, 0.5}, -- Light yellow
+        color = {1, 1, 0.5},
         update = function(frame)
             local mapID = C_Map.GetBestMapForUnit("player")
             if mapID then
@@ -313,15 +303,13 @@ local availableDataTexts = {
     },
     clock = {
         name = "Clock",
-        color = {0.5, 0.8, 1}, -- Light blue
+        color = {0.5, 0.8, 1},
         update = function(frame)
-            -- Use local time instead of server time
             local timeStr = date("%H:%M")
             frame.text:SetText(timeStr)
         end,
         tooltip = function()
             GameTooltip:SetText("Time")
-            -- Show both local and server time
             local localTime = date("%H:%M")
             local hour, minute = GetGameTime()
             local serverTime = string.format("%02d:%02d", hour, minute)
@@ -332,7 +320,6 @@ local availableDataTexts = {
             GameTooltip:AddLine("Click to open calendar", 0.8, 0.8, 0.8)
         end,
         onClick = function()
-            -- Try multiple methods to open the calendar
             if Calendar_Toggle then
                 Calendar_Toggle()
             elseif ToggleCalendar then
@@ -344,21 +331,17 @@ local availableDataTexts = {
                     CalendarFrame:Show()
                 end
             elseif GameTimeFrame and GameTimeFrame:IsVisible() then
-                -- Click the game time frame if it's visible
                 GameTimeFrame:Click()
             else
-                -- Fallback: try to show the calendar addon interface
                 if C_Calendar and C_Calendar.OpenCalendar then
                     C_Calendar.OpenCalendar()
-                else
-                    -- Could not open calendar - fail silently
                 end
             end
         end
     },
     durability = {
         name = "Durability",
-        color = {1, 0.7, 0.5}, -- Light orange (default, will be overridden by color coding)
+        color = {1, 0.7, 0.5},
         update = function(frame)
             local total, broken = 0, 0
             for i = 1, 18 do
@@ -375,17 +358,16 @@ local availableDataTexts = {
                 local percent = ((total - broken) / total) * 100
                 frame.text:SetText(string.format("Gear: %.0f%%", percent))
                 
-                -- Color coding based on durability percentage
                 if percent >= 75 then
-                    frame.text:SetTextColor(0.3, 1, 0.3) -- Green for good durability
+                    frame.text:SetTextColor(0.3, 1, 0.3)
                 elseif percent >= 25 then
-                    frame.text:SetTextColor(1, 1, 0.3) -- Yellow for medium durability
+                    frame.text:SetTextColor(1, 1, 0.3)
                 else
-                    frame.text:SetTextColor(1, 0.3, 0.3) -- Red for low durability
+                    frame.text:SetTextColor(1, 0.3, 0.3)
                 end
             else
                 frame.text:SetText("Gear: N/A")
-                frame.text:SetTextColor(0.7, 0.7, 0.7) -- Gray for no data
+                frame.text:SetTextColor(0.7, 0.7, 0.7)
             end
         end,
         tooltip = function()
@@ -405,7 +387,6 @@ local availableDataTexts = {
                 local percent = ((total - broken) / total) * 100
                 GameTooltip:AddLine(string.format("Overall: %.1f%%", percent), 1, 1, 1)
                 
-                -- Add condition assessment
                 if percent >= 75 then
                     GameTooltip:AddLine("Excellent condition", 0.3, 1, 0.3)
                 elseif percent >= 50 then
@@ -426,21 +407,19 @@ local availableDataTexts = {
     },
     gold = {
         name = "Gold",
-        color = {1, 0.8, 0}, -- Gold color
+        color = {1, 0.8, 0},
         update = function(frame)
             local money = GetMoney()
             local gold = math.floor(money / 10000)
             local silver = math.floor((money % 10000) / 100)
             local copper = money % 100
             
-            -- Format gold with commas for readability
             local function FormatGold(amount)
                 local formatted = tostring(amount)
                 local k = 1
                 while k <= #formatted do
                     k = k + 1
                 end
-                -- Add commas every 3 digits from right
                 local result = ""
                 local count = 0
                 for i = #formatted, 1, -1 do
@@ -470,7 +449,6 @@ local availableDataTexts = {
             local silver = math.floor((money % 10000) / 100)
             local copper = money % 100
             
-            -- Format with commas for tooltip too
             local function FormatGold(amount)
                 local formatted = tostring(amount)
                 local result = ""
@@ -493,35 +471,21 @@ local availableDataTexts = {
     },
     guild = {
         name = "Guild",
-        color = {0.25, 1, 0.25}, -- Green
-        icon = "Interface\\GossipFrame\\TabardGossipIcon", -- Guild tabard icon
+        color = {0.25, 1, 0.25},
+        icon = "Interface\\GossipFrame\\TabardGossipIcon",
         update = function(frame)
             if IsInGuild() then
                 local numTotal, numOnline = GetNumGuildMembers()
-                -- Use icon + numbers instead of text
-                if frame.icon then
-                    frame.text:SetText(string.format("%d/%d", numOnline, numTotal))
-                else
-                    frame.text:SetText(string.format("Guild: %d/%d", numOnline, numTotal))
-                end
+                frame.text:SetText(string.format("Guild: %d", numOnline))
                 
-                -- Color based on guild activity
-                local activityPercent = numTotal > 0 and (numOnline / numTotal) or 0
-                if activityPercent >= 0.5 then
-                    frame.text:SetTextColor(0.25, 1, 0.25) -- Bright green for active guild
-                elseif activityPercent >= 0.2 then
-                    frame.text:SetTextColor(1, 1, 0.3) -- Yellow for moderate activity
-                else
-                    frame.text:SetTextColor(0.8, 0.8, 0.8) -- Gray for low activity
-                end
+                frame.text:SetTextColor(0.25, 1, 0.25)
             else
-                frame.text:SetText("No Guild")
+                frame.text:SetText("Guild: 0")
                 frame.text:SetTextColor(0.7, 0.7, 0.7)
             end
         end,
         tooltip = function()
             GameTooltip:SetText("Guild Information")
-            -- Make tooltip wider for better readability
             GameTooltip:SetMinimumWidth(300)
             
             if IsInGuild() then
@@ -530,7 +494,6 @@ local availableDataTexts = {
                 GameTooltip:AddLine(guildName, 0.25, 1, 0.25)
                 GameTooltip:AddLine(string.format("Online: %d/%d", numOnline, numTotal), 1, 1, 1)
                 
-                -- Show guild activity level
                 local activityPercent = numTotal > 0 and (numOnline / numTotal) or 0
                 if activityPercent >= 0.5 then
                     GameTooltip:AddLine("High Activity", 0.25, 1, 0.25)
@@ -540,23 +503,20 @@ local availableDataTexts = {
                     GameTooltip:AddLine("Low Activity", 0.8, 0.8, 0.8)
                 end
                 
-                if numOnline > 0 and numOnline <= 20 then -- Increased from 15 to 20
+                if numOnline > 0 and numOnline <= 20 then
                     GameTooltip:AddLine(" ")
                     GameTooltip:AddLine("Online Members by Zone:", 1, 1, 0)
                     
-                    -- Get player's faction for guild member faction color coding
                     local playerFaction = UnitFactionGroup("player")
                     local playerZone = GetZoneText() or GetSubZoneText() or "Unknown"
                     
-                    -- Set faction colors
-                    local factionColor = {r=1, g=1, b=1} -- Default white
+                    local factionColor = {r=1, g=1, b=1}
                     if playerFaction == "Alliance" then
-                        factionColor = {r=0.3, g=0.6, b=1} -- Blue for Alliance
+                        factionColor = {r=0.3, g=0.6, b=1}
                     elseif playerFaction == "Horde" then
-                        factionColor = {r=1, g=0.3, b=0.3} -- Red for Horde
+                        factionColor = {r=1, g=0.3, b=0.3}
                     end
                     
-                    -- Group members by zone with enhanced color coding
                     local zoneGroups = {}
                     local sameZoneCount = 0
                     
@@ -569,22 +529,18 @@ local availableDataTexts = {
                             end
                             table.insert(zoneGroups[zone], {name = name, level = level, class = class})
                             
-                            -- Count members in same zone as player
                             if zone == playerZone then
                                 sameZoneCount = sameZoneCount + 1
                             end
                         end
                     end
                     
-                    -- Show same zone members first with enhanced display
                     if sameZoneCount > 0 then
                         GameTooltip:AddLine(string.format("In %s (%d):", playerZone, sameZoneCount), 0.3, 1, 0.3)
                         for _, member in ipairs(zoneGroups[playerZone] or {}) do
-                            -- Get class color and combine with faction color
                             local _, classFile = UnitClass(member.name)
                             local classColor = RAID_CLASS_COLORS[classFile or member.class] or {r=1, g=1, b=1}
                             
-                            -- Blend class color with faction color for enhanced readability
                             local finalR = (classColor.r + factionColor.r) / 2
                             local finalG = (classColor.g + factionColor.g) / 2
                             local finalB = (classColor.b + factionColor.b) / 2
@@ -593,7 +549,6 @@ local availableDataTexts = {
                         end
                     end
                     
-                    -- Show other zones with zone color coding
                     local zonesShown = sameZoneCount > 0 and 1 or 0
                     for zone, members in pairs(zoneGroups) do
                         if zone ~= playerZone and zonesShown < 4 then -- Limit to 4 zones total
@@ -663,7 +618,7 @@ local availableDataTexts = {
         color = {0.5, 0.5, 1}, -- Light blue
         icon = "Interface\\FriendsFrame\\UI-Toast-FriendOnlineIcon", -- Friends icon
         update = function(frame)
-            local numBNetOnline = select(2, BNGetNumFriends()) or 0
+            -- Only count WoW friends for main display
             local numWoWOnline = 0
             
             local numWoWFriends = C_FriendList.GetNumFriends() or 0
@@ -674,21 +629,12 @@ local availableDataTexts = {
                 end
             end
             
-            local total = numBNetOnline + numWoWOnline
-            -- Use icon + numbers instead of text
-            if frame.icon then
-                frame.text:SetText(string.format("%d", total))
-            else
-                frame.text:SetText(string.format("Friends: %d", total))
-            end
+            -- Show only WoW friends count as text
+            frame.text:SetText(string.format("Friends: %d", numWoWOnline))
             
-            -- Color based on friend activity
-            if total >= 10 then
-                frame.text:SetTextColor(0.3, 1, 0.3) -- Green for many friends online
-            elseif total >= 5 then
-                frame.text:SetTextColor(0.5, 0.8, 1) -- Light blue for some friends
-            elseif total > 0 then
-                frame.text:SetTextColor(1, 1, 0.3) -- Yellow for few friends
+            -- Always use default Blizzard friend color (cyan)
+            if numWoWOnline > 0 then
+                frame.text:SetTextColor(0, 1, 1) -- Cyan for online friends (default Blizzard friend color)
             else
                 frame.text:SetTextColor(0.7, 0.7, 0.7) -- Gray for no friends
             end
@@ -812,37 +758,13 @@ local availableDataTexts = {
             end
         end
     },
-    --[[latency = {
-        tooltip = function()
-            GameTooltip:SetText("Network Latency")
-            local _, _, lagHome, lagWorld = GetNetStats()
-            
-            GameTooltip:AddLine(string.format("Home Latency: %d ms", lagHome or 0), 1, 1, 1)
-            GameTooltip:AddLine(string.format("World Latency: %d ms", lagWorld or 0), 1, 1, 1)
-            GameTooltip:AddLine(" ")
-            
-            local maxLatency = math.max(lagHome or 0, lagWorld or 0)
-            if maxLatency <= 50 then
-                GameTooltip:AddLine("Excellent connection", 0.3, 1, 0.3)
-            elseif maxLatency <= 100 then
-                GameTooltip:AddLine("Good connection", 0.8, 1, 0.3)
-            elseif maxLatency <= 150 then
-                GameTooltip:AddLine("Fair connection", 1, 1, 0.3)
-            elseif maxLatency <= 300 then
-                GameTooltip:AddLine("Poor connection", 1, 0.8, 0.3)
-            else
-                GameTooltip:AddLine("Very poor connection", 1, 0.3, 0.3)
-            end
-        end
-    },--]]
     mail = {
         name = "Mail",
-        color = {1, 1, 0.8}, -- Light yellow
+        color = {1, 1, 0.8},
         update = function(frame)
             local hasNewMail = HasNewMail()
             local numUnreadMail = 0
             
-            -- Try to get unread mail count
             if C_Mail and C_Mail.GetNumUnreadMail then
                 numUnreadMail = C_Mail.GetNumUnreadMail() or 0
             end
@@ -853,11 +775,10 @@ local availableDataTexts = {
                 else
                     frame.text:SetText("Mail: New")
                 end
-                -- Color it more prominently when there's mail
-                frame.text:SetTextColor(1, 1, 0.3) -- Bright yellow
+                frame.text:SetTextColor(1, 1, 0.3)
             else
                 frame.text:SetText("Mail: 0")
-                frame.text:SetTextColor(0.7, 0.7, 0.7) -- Gray when no mail
+                frame.text:SetTextColor(0.7, 0.7, 0.7)
             end
         end,
         tooltip = function()
@@ -882,7 +803,7 @@ local availableDataTexts = {
     },
     experience = {
         name = "Experience",
-        color = {0.3, 1, 0.8}, -- Light cyan
+        color = {0.3, 1, 0.8},
         update = function(frame)
             local currentXP = UnitXP("player")
             local maxXP = UnitXPMax("player")
@@ -891,16 +812,15 @@ local availableDataTexts = {
             
             if level >= GetMaxPlayerLevel() then
                 frame.text:SetText("Max Level")
-                frame.text:SetTextColor(1, 0.8, 0) -- Gold for max level
+                frame.text:SetTextColor(1, 0.8, 0)
             else
                 local percent = (currentXP / maxXP) * 100
                 frame.text:SetText(string.format("XP: %.1f%%", percent))
                 
-                -- Color based on rested XP
                 if restXP > 0 then
-                    frame.text:SetTextColor(0.3, 1, 0.8) -- Cyan for rested
+                    frame.text:SetTextColor(0.3, 1, 0.8)
                 else
-                    frame.text:SetTextColor(1, 1, 1) -- White for normal
+                    frame.text:SetTextColor(1, 1, 1)
                 end
             end
         end,
@@ -929,12 +849,11 @@ local availableDataTexts = {
     },
     bags = {
         name = "Bags",
-        color = {0.8, 0.6, 0.4}, -- Brown/tan
+        color = {0.8, 0.6, 0.4},
         update = function(frame)
             local totalSlots = 0
             local freeSlots = 0
             
-            -- Count all bag slots (0-4 for retail, 0-3 for classic)
             for bagID = 0, 4 do
                 if GetContainerNumSlots then
                     local slots = GetContainerNumSlots(bagID) or 0
@@ -952,14 +871,13 @@ local availableDataTexts = {
             local usedSlots = totalSlots - freeSlots
             frame.text:SetText(string.format("Bags: %d/%d", usedSlots, totalSlots))
             
-            -- Color based on fullness
             local fillPercent = totalSlots > 0 and (usedSlots / totalSlots) or 0
             if fillPercent >= 0.9 then
-                frame.text:SetTextColor(1, 0.3, 0.3) -- Red when almost full
+                frame.text:SetTextColor(1, 0.3, 0.3)
             elseif fillPercent >= 0.7 then
-                frame.text:SetTextColor(1, 1, 0.3) -- Yellow when getting full
+                frame.text:SetTextColor(1, 1, 0.3)
             else
-                frame.text:SetTextColor(0.8, 0.6, 0.4) -- Normal brown
+                frame.text:SetTextColor(0.8, 0.6, 0.4)
             end
         end,
         tooltip = function()
@@ -967,7 +885,6 @@ local availableDataTexts = {
             local totalSlots = 0
             local freeSlots = 0
             
-            -- Show each bag individually
             for bagID = 0, 4 do
                 local slots = 0
                 local free = 0
@@ -985,8 +902,7 @@ local availableDataTexts = {
                     if bagID == 0 then
                         bagName = "Backpack"
                     else
-                        -- Use modern bag naming approach without deprecated API
-                        local bagSlotID = bagID + 19 -- Bag slots start at 20 (19+1), 21, 22, 23 for bags 1-4
+                        local bagSlotID = bagID + 19
                         local link = GetInventoryItemLink("player", bagSlotID)
                         if link then
                             bagName = GetItemInfo(link) or ("Bag " .. bagID)
@@ -1580,7 +1496,8 @@ local function CreateOtherDataBar()
     otherDataBar:SetBackdropBorderColor(0.5, 0.5, 1, 1)
     
     -- Apply initial opacity to backdrop only
-    local opacity = Options:get("otherDataBarOpacity") or 0.9
+    local opacity = Options:get("otherDataBarOpacity")
+    if opacity == nil then opacity = 0.9 end
     otherDataBar:SetBackdropColor(0, 0, 0, 0.9 * opacity)
     otherDataBar:SetBackdropBorderColor(0.5, 0.5, 1, 1 * opacity)
     
@@ -1661,7 +1578,8 @@ local function CreateSecondDataBar()
     secondDataBar:SetBackdropBorderColor(1, 0.5, 0.5, 1) -- Reddish border to distinguish from other bar
     
     -- Apply initial opacity to backdrop only
-    local opacity = Options:get("secondDataBarOpacity") or 0.9
+    local opacity = Options:get("secondDataBarOpacity")
+    if opacity == nil then opacity = 0.9 end
     secondDataBar:SetBackdropColor(0, 0, 0, 0.9 * opacity)
     secondDataBar:SetBackdropBorderColor(1, 0.5, 0.5, 1 * opacity)
     
@@ -1701,7 +1619,8 @@ local function CreateMinimapDataBar()
     minimapDataBar:SetFrameLevel(10)
     
     -- Apply initial opacity to backdrop only
-    local opacity = Options:get("minimapDataBarOpacity") or 0.9
+    local opacity = Options:get("minimapDataBarOpacity")
+    if opacity == nil then opacity = 0.9 end
     minimapDataBar:SetBackdropColor(0, 0, 0, 0.8 * opacity)
     minimapDataBar:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8 * opacity)
     
@@ -2229,21 +2148,24 @@ end
 -- Update data bar opacity
 function DataTexts:UpdateDataBarOpacity()
     if minimapDataBar then
-        local opacity = Options:get("minimapDataBarOpacity") or 0.9
+        local opacity = Options:get("minimapDataBarOpacity")
+        if opacity == nil then opacity = 0.9 end
         -- Only change backdrop opacity, not frame alpha to preserve text visibility
         minimapDataBar:SetBackdropColor(0, 0, 0, 0.8 * opacity)
         minimapDataBar:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8 * opacity)
     end
     
     if otherDataBar then
-        local opacity = Options:get("otherDataBarOpacity") or 0.9
+        local opacity = Options:get("otherDataBarOpacity")
+        if opacity == nil then opacity = 0.9 end
         -- Only change backdrop opacity, not frame alpha to preserve text visibility
         otherDataBar:SetBackdropColor(0, 0, 0, 0.9 * opacity)
         otherDataBar:SetBackdropBorderColor(0.5, 0.5, 1, 1 * opacity)
     end
     
     if secondDataBar then
-        local opacity = Options:get("secondDataBarOpacity") or 0.9
+        local opacity = Options:get("secondDataBarOpacity")
+        if opacity == nil then opacity = 0.9 end
         -- Only change backdrop opacity, not frame alpha to preserve text visibility
         secondDataBar:SetBackdropColor(0, 0, 0, 0.9 * opacity)
         secondDataBar:SetBackdropBorderColor(1, 0.5, 0.5, 1 * opacity)

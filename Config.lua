@@ -218,7 +218,7 @@ local function CreateConfigPanel()
     local buttonBarTitle = content:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     buttonBarTitle:SetPoint("TOPLEFT", scaleSlider, "BOTTOMLEFT", 0, -32)
     buttonBarTitle:SetText("Button Bar Settings")
-    buttonBarTitle:SetTextColor(1, 1, 0) -- Yellow title
+    buttonBarTitle:SetTextColor(1, 1, 0)
     
     local hideButtonsCheck = CreateFrame("CheckButton", "MiniMapimousHideButtonsCheck", content, "InterfaceOptionsCheckButtonTemplate")
     hideButtonsCheck:SetPoint("TOPLEFT", buttonBarTitle, "BOTTOMLEFT", 0, -8)
@@ -243,14 +243,12 @@ local function CreateConfigPanel()
         UpdateBarVisibility()
     end)
     
-    -- Show Blizzard buttons in bar checkbox
     local showBlizzardButtonsCheck = CreateFrame("CheckButton", "MiniMapimousShowBlizzardButtonsCheck", content, "InterfaceOptionsCheckButtonTemplate")
     showBlizzardButtonsCheck:SetPoint("TOPLEFT", hideButtonBarCheck, "BOTTOMLEFT", 0, -8)
     _G[showBlizzardButtonsCheck:GetName() .. "Text"]:SetText("Show Blizzard buttons in bar")
     showBlizzardButtonsCheck:SetChecked(Options:get("showBlizzardButtons"))
     showBlizzardButtonsCheck:SetScript("OnClick", function(self)
         Options:set("showBlizzardButtons", self:GetChecked())
-        -- Re-collect buttons to apply the new setting
         if Options:get("hideButtons") then
             CollectMinimapButtons()
         end
@@ -260,13 +258,13 @@ local function CreateConfigPanel()
     local dataTextsTitle = content:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     dataTextsTitle:SetPoint("TOPLEFT", showBlizzardButtonsCheck, "BOTTOMLEFT", 0, -32)
     dataTextsTitle:SetText("Data Texts & Bars")
-    dataTextsTitle:SetTextColor(1, 1, 0) -- Yellow title
+    dataTextsTitle:SetTextColor(1, 1, 0)
     
     -- Data bar controls section
     local dataBarControlsTitle = content:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     dataBarControlsTitle:SetPoint("TOPLEFT", dataTextsTitle, "BOTTOMLEFT", 0, -16)
     dataBarControlsTitle:SetText("Data Bar Controls:")
-    dataBarControlsTitle:SetTextColor(0.8, 0.8, 1) -- Light blue subtitle
+    dataBarControlsTitle:SetTextColor(0.8, 0.8, 1)
     
     -- Lock/Unlock data bars
     local lockDataBarsCheck = CreateFrame("CheckButton", "MiniMapimousLockDataBarsCheck", content, "InterfaceOptionsCheckButtonTemplate")
@@ -316,18 +314,18 @@ local function CreateConfigPanel()
     otherBarOpacitySlider:SetPoint("TOPLEFT", showOtherDataBarCheck, "TOPRIGHT", 80, 8)
     otherBarOpacitySlider:SetWidth(80)
     otherBarOpacitySlider:SetHeight(16)
-    otherBarOpacitySlider:SetMinMaxValues(0.1, 1.0)
-    otherBarOpacitySlider:SetValueStep(0.1)
+    otherBarOpacitySlider:SetMinMaxValues(0.0, 1.0)
+    otherBarOpacitySlider:SetValueStep(0.05)
     otherBarOpacitySlider:SetObeyStepOnDrag(true)
     
-    _G[otherBarOpacitySlider:GetName() .. "Low"]:SetText("10%")
+    _G[otherBarOpacitySlider:GetName() .. "Low"]:SetText("0%")
     _G[otherBarOpacitySlider:GetName() .. "High"]:SetText("100%")
-    _G[otherBarOpacitySlider:GetName() .. "Text"]:SetText("Opacity: " .. (Options:get("otherDataBarOpacity") or 0.9) * 100 .. "%")
+    _G[otherBarOpacitySlider:GetName() .. "Text"]:SetText("Opacity: " .. math.floor((Options:get("otherDataBarOpacity") or 0.9) * 100) .. "%")
     
     otherBarOpacitySlider:SetValue(Options:get("otherDataBarOpacity") or 0.9)
     otherBarOpacitySlider:SetScript("OnValueChanged", function(self, value)
         Options:set("otherDataBarOpacity", value)
-        _G[self:GetName() .. "Text"]:SetText("Opacity: " .. floor(value * 100) .. "%")
+        _G[self:GetName() .. "Text"]:SetText("Opacity: " .. math.floor(value * 100) .. "%")
         local DataTexts = addon.import("DataTexts")
         DataTexts:UpdateDataBarOpacity()
     end)
@@ -374,18 +372,18 @@ local function CreateConfigPanel()
     secondBarOpacitySlider:SetPoint("TOPLEFT", showSecondDataBarCheck, "TOPRIGHT", 80, 8)
     secondBarOpacitySlider:SetWidth(80)
     secondBarOpacitySlider:SetHeight(16)
-    secondBarOpacitySlider:SetMinMaxValues(0.1, 1.0)
-    secondBarOpacitySlider:SetValueStep(0.1)
+    secondBarOpacitySlider:SetMinMaxValues(0.0, 1.0)
+    secondBarOpacitySlider:SetValueStep(0.05)
     secondBarOpacitySlider:SetObeyStepOnDrag(true)
     
-    _G[secondBarOpacitySlider:GetName() .. "Low"]:SetText("10%")
+    _G[secondBarOpacitySlider:GetName() .. "Low"]:SetText("0%")
     _G[secondBarOpacitySlider:GetName() .. "High"]:SetText("100%")
-    _G[secondBarOpacitySlider:GetName() .. "Text"]:SetText("Opacity: " .. (Options:get("secondDataBarOpacity") or 0.9) * 100 .. "%")
+    _G[secondBarOpacitySlider:GetName() .. "Text"]:SetText("Opacity: " .. math.floor((Options:get("secondDataBarOpacity") or 0.9) * 100) .. "%")
     
     secondBarOpacitySlider:SetValue(Options:get("secondDataBarOpacity") or 0.9)
     secondBarOpacitySlider:SetScript("OnValueChanged", function(self, value)
         Options:set("secondDataBarOpacity", value)
-        _G[self:GetName() .. "Text"]:SetText("Opacity: " .. floor(value * 100) .. "%")
+        _G[self:GetName() .. "Text"]:SetText("Opacity: " .. math.floor(value * 100) .. "%")
         local DataTexts = addon.import("DataTexts")
         DataTexts:UpdateDataBarOpacity()
     end)
@@ -415,17 +413,15 @@ local function CreateConfigPanel()
     local dataTextPositionTitle = content:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     dataTextPositionTitle:SetPoint("TOPLEFT", showSecondDataBarCheck, "BOTTOMLEFT", 0, -32)
     dataTextPositionTitle:SetText("Data Text Positioning:")
-    dataTextPositionTitle:SetTextColor(0.8, 0.8, 1) -- Light blue subtitle
+    dataTextPositionTitle:SetTextColor(0.8, 0.8, 1)
     
-    -- Individual data text controls with dropdowns (more compact)
     local dataTextControls = {}
     local DataTexts = addon.import("DataTexts")
     local availableTexts = DataTexts:GetAvailableDataTexts()
     
-    local yOffset = -8 -- Start right after the subtitle
+    local yOffset = -8
     local dataTextOrder = {"memory", "coordinates", "clock", "durability", "gold", "guild", "friends", "mail", "experience", "bags", "talents", "reputation", "currency", "session", "performance"}
     
-    -- Function to create dropdown for data text positioning
     local function CreateDataTextDropdown(key, config, parent, yPos)
         local label = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         label:SetPoint("TOPLEFT", dataTextPositionTitle, "BOTTOMLEFT", 0, yPos)
@@ -440,7 +436,6 @@ local function CreateConfigPanel()
         local function OnClick(self)
             Options:set("dataText_" .. key .. "_position", self.value)
             
-            -- Auto-enable target data bar when assigning data text to it
             if self.value == "minimap" then
                 Options:set("showMinimapDataBar", true)
                 if showMinimapDataBarCheck then
@@ -458,7 +453,6 @@ local function CreateConfigPanel()
                 end
             end
             
-            -- Get display text from value instead of self.text
             local displayText = "First Data Bar"
             if self.value == "hide" then 
                 displayText = "Hide"
@@ -468,17 +462,13 @@ local function CreateConfigPanel()
                 displayText = "Second Data Bar"
             end
             
-            -- Properly update dropdown text to show selection
             UIDropDownMenu_SetText(dropdown, displayText)
             
-            -- Force close the dropdown menu
             CloseDropDownMenus()
             
-            -- Refresh the data texts
             local DataTexts = addon.import("DataTexts")
             DataTexts:RefreshDataTexts()
             
-            -- Small delay to ensure UI updates properly, then refresh dropdown
             C_Timer.After(0.1, function()
                 UIDropDownMenu_SetText(dropdown, displayText)
             end)
@@ -511,7 +501,6 @@ local function CreateConfigPanel()
         
         UIDropDownMenu_Initialize(dropdown, Initialize)
         
-        -- Set initial value with shorter text
         local currentPos = Options:get("dataText_" .. key .. "_position") or "other"
         local displayText = "First Data Bar"
         if currentPos == "hide" then displayText = "Hide"
@@ -520,7 +509,6 @@ local function CreateConfigPanel()
         end
         UIDropDownMenu_SetText(dropdown, displayText)
         
-        -- Ensure dropdown shows selection immediately
         C_Timer.After(0.1, function()
             UIDropDownMenu_SetText(dropdown, displayText)
         end)
@@ -528,7 +516,6 @@ local function CreateConfigPanel()
         return dropdown
     end
     
-    -- Create dropdowns in a single column for better visibility
     for i, key in ipairs(dataTextOrder) do
         local config = availableTexts[key]
         if config then
